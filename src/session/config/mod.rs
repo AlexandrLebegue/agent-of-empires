@@ -450,7 +450,7 @@ pub struct AcpConfig {
         label = "Default Agent in Structured view",
         widget = "text",
         validate = "nonempty",
-        summary = "New Structured view Sessions start with this Agent. Only Agents that can run in Structured view are listed."
+        summary = "The Agent a new Structured view Session falls back to when none is chosen and its own Agent can't run in Structured view. Type the Agent's name."
     )]
     pub default_agent: String,
     /// Restrict structured view sessions to the agents named in
@@ -493,7 +493,7 @@ pub struct AcpConfig {
         min = 1,
         validate = "range:1",
         advanced,
-        summary = "How many Structured view Sessions can have their Agent running at the same time. Lower it to save memory."
+        summary = "How many Structured view Sessions can have their Agent running at the same time. Lower it to save memory. Applies after the Daemon restarts."
     )]
     pub max_concurrent_workers: u32,
     /// Per-session retention cap on acp events. 0 = unlimited (default);
@@ -1077,7 +1077,7 @@ pub struct SessionConfig {
         widget = "custom:default-tool",
         category = "Agents",
         repo = "deny",
-        summary = "New Terminal view Sessions start with this Agent. Unset, it uses the first Agent available."
+        summary = "New Sessions start with this Agent, in either view. Unset, it uses the first Agent available."
     )]
     pub default_tool: Option<String>,
 
@@ -1104,7 +1104,7 @@ pub struct SessionConfig {
         widget = "toggle",
         category = "Agents",
         web = "elevation:lets a repo's own hooks run unprompted on the host",
-        summary = "Pre-trusts new worktrees on the host. This also turns on the repository's own Agent settings file."
+        summary = "Pre-trusts each host Session's folder when it starts, worktree or not. This also turns on the repository's own Agent settings file."
     )]
     pub pre_trust_agent_folders: bool,
 
@@ -1140,7 +1140,7 @@ pub struct SessionConfig {
         widget = "toggle",
         web = "elevation:widens what every agent process can read from the host environment",
         advanced,
-        summary = "Pass all your environment variables (like API keys and tool paths) to Agents, not just the ones you list. Sandboxed Sessions use their own list."
+        summary = "Pass AoE's whole environment (like API keys and tool paths) to Agents on your computer, not just the ones you list. A Daemon started outside your shell only has what it was given. Sandboxed Sessions use their own list."
     )]
     pub inherit_host_environment: bool,
 
@@ -1508,7 +1508,7 @@ pub struct SessionConfig {
     #[setting(
         label = "Confirm before moving to Trash",
         widget = "toggle",
-        summary = "Ask before d moves a Session to Trash. The Web dashboard always asks."
+        summary = "Ask before d moves a Session to Trash. In the Web dashboard the Session menu asks, but the command palette doesn't."
     )]
     pub confirm_delete: bool,
 
@@ -1546,7 +1546,7 @@ pub struct SessionConfig {
         min = 0,
         category = "Interaction",
         advanced,
-        summary = "Ends a Session that has been Idle this long. A Session with a terminal attached is never stopped."
+        summary = "Ends a Session that has been Idle this long. A Session with a terminal attached is never stopped. Needs the Daemon running."
     )]
     pub auto_stop_idle_secs: u32,
 
@@ -1564,7 +1564,7 @@ pub struct SessionConfig {
         label = "Keep the computer awake",
         widget = "toggle",
         global_only,
-        summary = "While a Session is Running, the computer won't go to sleep. Needs the Daemon running."
+        summary = "While a Session is working or waiting on you, and for a grace time after it goes Idle, the computer won't go to sleep on its own. Needs the Daemon running; macOS and Linux only."
     )]
     pub prevent_sleep_when_active: bool,
 
@@ -1721,14 +1721,15 @@ pub struct SessionConfig {
     pub click_action: ClickAction,
 
     /// Warn before quitting aoe when you press `q` on the home screen (the
-    /// dialog can also turn this off). Ctrl+C always force-quits.
+    /// dialog can also turn this off). Ctrl+C quits without asking, except
+    /// while a session is being created.
     #[serde(default = "default_true")]
     #[setting(
         label = "Confirm before quitting",
         widget = "toggle",
         global_only,
         tui_only,
-        summary = "Ask before q quits. Ctrl+C always quits."
+        summary = "Ask before q quits. Ctrl+C quits without asking, except while a Session is being created."
     )]
     pub confirm_before_quit: bool,
 
@@ -2462,7 +2463,7 @@ pub struct WebConfig {
         label = "Notifications for every browser",
         widget = "toggle",
         global_only,
-        summary = "Off stops notifications in every browser and hides the Turn on button. Applies to every Profile."
+        summary = "Off stops notifications in every browser and hides the Turn on button. Applies to every Profile, after the Daemon restarts."
     )]
     pub notifications_enabled: bool,
 
@@ -2473,7 +2474,7 @@ pub struct WebConfig {
         label = "A Session needs you",
         widget = "toggle",
         global_only,
-        summary = "The Agent is waiting for your answer or approval."
+        summary = "The Agent is waiting for your answer or approval. Applies after the Daemon restarts."
     )]
     pub notify_on_waiting: bool,
 
@@ -2485,7 +2486,7 @@ pub struct WebConfig {
         label = "A Session finishes",
         widget = "toggle",
         global_only,
-        summary = "The Agent is done and the Session is Idle."
+        summary = "The Agent is done and the Session is Idle. Applies after the Daemon restarts."
     )]
     pub notify_on_idle: bool,
 
@@ -2502,19 +2503,19 @@ pub struct WebConfig {
         label = "A scheduled wake-up fires",
         widget = "toggle",
         global_only,
-        summary = "When an Agent set itself a timer to check back. Skipped if you were using AoE in the last 30 seconds."
+        summary = "When an Agent set itself a timer to check back. Skipped if you were using AoE in the last 30 seconds. Applies after the Daemon restarts."
     )]
     pub notify_on_wake_fire: bool,
 
     /// Serve a Model Context Protocol server at `/mcp` on the daemon so MCP
-    /// clients holding the daemon token can list and drive sessions. When
-    /// false the route does not exist. Read at daemon startup.
+    /// clients holding the daemon token can list sessions (read-only tools for
+    /// now). When false the route does not exist. Read at daemon startup.
     #[serde(default)]
     #[setting(
         label = "Let other apps control AoE",
         widget = "toggle",
         global_only,
-        summary = "Apps like Claude Code can list and drive your Sessions through MCP. Works only when the Web dashboard uses the access link without a passphrase."
+        summary = "Apps like Claude Code can list your Sessions through MCP. Read-only for now. Works when aoe serve uses the access link without a passphrase, or --auth none. Applies after the Daemon restarts."
     )]
     pub mcp_enabled: bool,
 }
@@ -2616,7 +2617,7 @@ pub struct ThemeConfig {
         label = "Highlight Sessions that just finished",
         widget = "number",
         min = 0,
-        summary = "Newly Idle Sessions keep a soft highlight and a breathing icon for the set time. In the terminal app, w jumps to these Sessions."
+        summary = "In the terminal app, newly Idle Sessions keep a soft highlight and a breathing icon for the set time, and w jumps to them."
     )]
     pub idle_decay_minutes: u64,
 }
@@ -2685,7 +2686,7 @@ pub struct UpdatesConfig {
         label = "When a new version is out",
         widget = "select",
         options = "auto:auto,notify:notify,off:off",
-        summary = "Tell me shows a banner in the Web dashboard and the terminal app. Install in the background applies it the next time AoE starts. Don't check turns checks off."
+        summary = "Tell me shows a banner in the Web dashboard and the terminal app. Install in the background works only in the terminal app, for a binary from the install script. Don't check turns checks off."
     )]
     pub update_check_mode: UpdateCheckMode,
 
@@ -2753,7 +2754,7 @@ pub struct TelemetryConfig {
         label = "Share anonymous usage data",
         widget = "toggle",
         global_only,
-        summary = "How many Sessions you run, which Agents and models, your AoE version and operating system. Never your prompts, file paths, names, branches or commands."
+        summary = "Anonymous counts: your Sessions and their Agents and models, which features and aoe commands you use, your AoE version and operating system. Never your prompts, file paths, names, branches or shell commands."
     )]
     pub enabled: bool,
 }
@@ -2799,13 +2800,15 @@ pub struct WorktreeConfig {
     )]
     pub bare_repo_path_template: String,
 
-    /// Automatically clean up worktrees on session delete.
+    /// Remove an AoE-managed worktree when Trash purges its session, and
+    /// pre-check worktree removal in the delete dialogs. `aoe rm` removes it
+    /// only with `--delete-worktree`.
     #[serde(default = "default_true")]
     #[setting(
         label = "Remove the worktree with the Session",
         widget = "toggle",
         web = "elevation:worktree config affects host filesystem",
-        summary = "When a Session is purged, its worktree folder is removed too."
+        summary = "Removes the worktree AoE made when Trash purges a Session, and pre-checks it when you delete one. aoe rm needs --delete-worktree."
     )]
     pub auto_cleanup: bool,
 
@@ -2910,7 +2913,7 @@ pub struct SandboxConfig {
         widget = "toggle",
         web = "elevation:sandbox config affects host isolation",
         repo = "deny",
-        summary = "Each Session's Agent runs inside its own container, so it can only touch the Project's files."
+        summary = "Each Session's Agent runs inside its own container. It can reach the Project's files and any folders from your computer you add under Extra folders."
     )]
     pub enabled_by_default: bool,
 
@@ -3081,7 +3084,7 @@ pub struct SandboxConfig {
         widget = "toggle",
         web = "elevation:sandbox config affects host isolation",
         repo = "deny",
-        summary = "Lets the Agent push and pull over SSH from inside the container."
+        summary = "Shares your ~/.ssh folder read-only with the container, so the Agent can push and pull over SSH with those key files."
     )]
     pub mount_ssh: bool,
 
@@ -3182,14 +3185,15 @@ pub struct SandboxConfig {
     pub extra_run_args: Vec<String>,
 
     /// Custom instruction text appended to the agent's system prompt in
-    /// sandboxed sessions (Claude, Codex only).
+    /// sandboxed terminal-view sessions, for agents with an instruction flag
+    /// (Claude Code, Codex, Qwen, OMP, Prime Agent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[setting(
         label = "Custom instructions",
         widget = "optional_text",
         web = "elevation:sandbox config affects host isolation",
         advanced,
-        summary = "Added to the Agent's instructions in sandboxed Sessions. Claude Code and Codex only."
+        summary = "Added to the Agent's instructions in sandboxed Terminal view Sessions, for Agents that accept it, like Claude Code and Codex."
     )]
     pub custom_instruction: Option<String>,
 
@@ -3347,7 +3351,7 @@ pub struct TmuxConfig {
         widget = "optional_text",
         global_only,
         web = "local_only:changes which tmux server hosts your sessions on this machine",
-        summary = "Keeps AoE's Sessions apart from your other tmux sessions. Enter a short name, like aoe.Change it when no Sessions are running."
+        summary = "Keeps AoE's Sessions apart from your other tmux sessions. Enter a short name, like aoe. Change it when no Sessions are running."
     )]
     pub socket_name: Option<String>,
 
