@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,18 +21,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +55,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -88,6 +97,10 @@ fun SessionsScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val keyboard = LocalSoftwareKeyboardController.current
+    var renameTarget by remember { mutableStateOf<Session?>(null) }
+    var snoozeTarget by remember { mutableStateOf<Session?>(null) }
+    var colorTarget by remember { mutableStateOf<Session?>(null) }
+    var trashTarget by remember { mutableStateOf<Session?>(null) }
 
     LaunchedEffect(ui.message) {
         ui.message?.let {
@@ -253,16 +266,27 @@ fun SessionsScreen(
                             GroupHeader(group)
                         }
                         items(group.sessions, key = { it.id }) { session ->
-                            SessionRow(
+                            SwipeableSessionRow(
                                 session = session,
-                                onClick = {
-                                    viewModel.markRead(session)
-                                    onOpenSession(session.id)
-                                },
-                                onTogglePin = { viewModel.togglePin(session) },
-                                onToggleFavorite = { viewModel.toggleFavorite(session) },
-                                onToggleMuted = { viewModel.toggleMuted(session) },
-                                onToggleRead = { viewModel.toggleRead(session) },
+                                actions = SessionRowActions(
+                                    onOpen = {
+                                        viewModel.markRead(session)
+                                        onOpenSession(session.id)
+                                    },
+                                    onTogglePin = { viewModel.togglePin(session) },
+                                    onToggleFavorite = { viewModel.toggleFavorite(session) },
+                                    onToggleMuted = { viewModel.toggleMuted(session) },
+                                    onToggleRead = { viewModel.toggleRead(session) },
+                                    onRename = { renameTarget = session },
+                                    onSnooze = { snoozeTarget = session },
+                                    onColor = { colorTarget = session },
+                                    onArchive = { viewModel.toggleArchive(session) },
+                                    onTrash = { trashTarget = session },
+                                    onRestore = { viewModel.restore(session) },
+                                    onStop = { viewModel.stop(session) },
+                                    onStart = { viewModel.start(session) },
+                                    onRestart = { viewModel.restart(session) },
+                                ),
                             )
                         }
                     }
@@ -270,6 +294,35 @@ fun SessionsScreen(
                 }
             }
         }
+    }
+
+    renameTarget?.let { session ->
+        RenameSessionDialog(
+            session = session,
+            onDismiss = { renameTarget = null },
+            onConfirm = { title -> viewModel.rename(session, title) },
+        )
+    }
+    snoozeTarget?.let { session ->
+        SnoozeSessionDialog(
+            session = session,
+            onDismiss = { snoozeTarget = null },
+            onSnooze = { minutes -> viewModel.snooze(session, minutes) },
+        )
+    }
+    colorTarget?.let { session ->
+        ColorSessionDialog(
+            session = session,
+            onDismiss = { colorTarget = null },
+            onColor = { color -> viewModel.setColor(session, color) },
+        )
+    }
+    trashTarget?.let { session ->
+        TrashSessionDialog(
+            session = session,
+            onDismiss = { trashTarget = null },
+            onConfirm = { viewModel.trash(session) },
+        )
     }
 }
 
@@ -373,27 +426,96 @@ private fun SearchHitRow(hit: SearchHit, title: String, onClick: () -> Unit) {
     }
 }
 
+private class SessionRowActions(
+    val onOpen: () -> Unit,
+    val onTogglePin: () -> Unit,
+    val onToggleFavorite: () -> Unit,
+    val onToggleMuted: () -> Unit,
+    val onToggleRead: () -> Unit,
+    val onRename: () -> Unit,
+    val onSnooze: () -> Unit,
+    val onColor: () -> Unit,
+    val onArchive: () -> Unit,
+    val onTrash: () -> Unit,
+    val onRestore: () -> Unit,
+    val onStop: () -> Unit,
+    val onStart: () -> Unit,
+    val onRestart: () -> Unit,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SessionRow(
-    session: Session,
-    onClick: () -> Unit,
-    onTogglePin: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onToggleMuted: () -> Unit,
-    onToggleRead: () -> Unit,
-) {
+private fun SwipeableSessionRow(session: Session, actions: SessionRowActions) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    if (session.isTrashed) actions.onRestore() else actions.onToggleFavorite()
+                    false
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    if (!session.isTrashed) actions.onArchive()
+                    false
+                }
+                else -> false
+            }
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = !session.isTrashed,
+        backgroundContent = {
+            val startToEnd = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+            val color = if (startToEnd) {
+                if (session.isTrashed) MaterialTheme.colorScheme.primary else Color(0xFFF2C46D)
+            } else {
+                MaterialTheme.colorScheme.secondary
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color.copy(alpha = 0.22f))
+                    .padding(horizontal = 20.dp),
+                contentAlignment = if (startToEnd) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(
+                    imageVector = when {
+                        startToEnd && session.isTrashed -> Icons.Default.RestoreFromTrash
+                        startToEnd -> Icons.Default.Star
+                        else -> Icons.Default.Archive
+                    },
+                    contentDescription = null,
+                    tint = color,
+                )
+            }
+        },
+    ) {
+        SessionRow(session, actions)
+    }
+}
+
+@Composable
+private fun SessionRow(session: Session, actions: SessionRowActions) {
     val muted = session.notifyOnWaiting == false &&
         session.notifyOnIdle == false &&
         session.notifyOnError == false
-    val highlight = when (session.status) {
-        SessionStatus.WAITING -> Color(0xFFF0A43A).copy(alpha = 0.13f)
-        SessionStatus.ERROR -> MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
+    val highlight = when {
+        session.isTrashed -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        session.status == SessionStatus.WAITING -> Color(0xFFF0A43A).copy(alpha = 0.13f)
+        session.status == SessionStatus.ERROR -> MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
         else -> MaterialTheme.colorScheme.surface
     }
     var menuOpen by remember { mutableStateOf(false) }
+    val colorDot = when (session.color) {
+        "red" -> Color(0xFFE05A5A)
+        "amber" -> Color(0xFFF0A43A)
+        "green" -> Color(0xFF5FBF83)
+        else -> null
+    }
 
     Card(
-        onClick = onClick,
+        onClick = actions.onOpen,
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (session.isArchived) 0.7f else 1f),
@@ -404,6 +526,14 @@ private fun SessionRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(session.status, size = if (session.unread) 11 else 9)
                 Spacer(Modifier.width(8.dp))
+                if (colorDot != null) {
+                    Box(
+                        Modifier
+                            .padding(end = 5.dp)
+                            .size(7.dp)
+                            .background(colorDot, CircleShape),
+                    )
+                }
                 Text(
                     session.title,
                     modifier = Modifier.weight(1f),
@@ -441,38 +571,108 @@ private fun SessionRow(
                         Icon(Icons.Default.MoreVert, contentDescription = "Actions", modifier = Modifier.size(18.dp))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(if (session.isPinned) "Désépingler" else "Épingler") },
-                            onClick = {
-                                menuOpen = false
-                                onTogglePin()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(if (session.favorited) "Retirer des favoris" else "Ajouter aux favoris")
-                            },
-                            onClick = {
-                                menuOpen = false
-                                onToggleFavorite()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(if (muted) "Réactiver les notifications" else "Muter les notifications")
-                            },
-                            onClick = {
-                                menuOpen = false
-                                onToggleMuted()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (session.unread) "Marquer comme lu" else "Marquer comme non lu") },
-                            onClick = {
-                                menuOpen = false
-                                onToggleRead()
-                            },
-                        )
+                        if (session.isTrashed) {
+                            DropdownMenuItem(
+                                text = { Text("Restaurer") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onRestore()
+                                },
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("Renommer") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onRename()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Mettre en pause") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onSnooze()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Couleur") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onColor()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (session.isPinned) "Désépingler" else "Épingler") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onTogglePin()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (session.favorited) "Retirer des favoris" else "Ajouter aux favoris")
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onToggleFavorite()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (muted) "Réactiver les notifications" else "Muter les notifications")
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onToggleMuted()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (session.unread) "Marquer comme lu" else "Marquer comme non lu") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onToggleRead()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (session.isArchived) "Désarchiver" else "Archiver") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onArchive()
+                                },
+                            )
+                            if (session.status == SessionStatus.STOPPED || session.status == SessionStatus.ERROR) {
+                                DropdownMenuItem(
+                                    text = { Text("Démarrer") },
+                                    onClick = {
+                                        menuOpen = false
+                                        actions.onStart()
+                                    },
+                                )
+                            }
+                            if (session.status != SessionStatus.STOPPED) {
+                                DropdownMenuItem(
+                                    text = { Text("Arrêter") },
+                                    onClick = {
+                                        menuOpen = false
+                                        actions.onStop()
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Redémarrer") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onRestart()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Mettre à la corbeille") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onTrash()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -536,6 +736,13 @@ private fun SessionRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (session.isTrashed) {
+                    Text(
+                        "corbeille",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 if (muted) {
                     Text(
                         "muette",
@@ -546,4 +753,128 @@ private fun SessionRow(
             }
         }
     }
+}
+
+@Composable
+private fun RenameSessionDialog(session: Session, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var value by remember(session.id) { mutableStateOf(session.title) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Renommer la session") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                singleLine = true,
+                label = { Text("Titre") },
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(value)
+                    onDismiss()
+                },
+                enabled = value.isNotBlank(),
+            ) { Text("Renommer") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun SnoozeSessionDialog(session: Session, onDismiss: () -> Unit, onSnooze: (Int?) -> Unit) {
+    val presets = listOf(
+        60 to "1 heure",
+        120 to "2 heures",
+        180 to "3 heures",
+        240 to "4 heures",
+        360 to "6 heures",
+        1_440 to "1 jour",
+        10_080 to "1 semaine",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mettre en pause") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                if (session.isSnoozed) {
+                    TextButton(
+                        onClick = {
+                            onSnooze(null)
+                            onDismiss()
+                        },
+                    ) { Text("Réveiller maintenant") }
+                    HorizontalDivider()
+                }
+                presets.forEach { (minutes, label) ->
+                    TextButton(
+                        onClick = {
+                            onSnooze(minutes)
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(label) }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun ColorSessionDialog(session: Session, onDismiss: () -> Unit, onColor: (String?) -> Unit) {
+    val colors = listOf(
+        "red" to "Rouge",
+        "amber" to "Ambre",
+        "green" to "Vert",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Couleur de la session") },
+        text = {
+            Column {
+                colors.forEach { (value, label) ->
+                    TextButton(
+                        onClick = {
+                            onColor(value)
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(label + if (session.color == value) "  ✓" else "") }
+                }
+                TextButton(
+                    onClick = {
+                        onColor(null)
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Aucune") }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun TrashSessionDialog(session: Session, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mettre à la corbeille ?") },
+        text = {
+            Text(
+                "La session « ${session.title} » sera arrêtée et masquée. " +
+                    "Sa transcription et ses fichiers sont conservés et elle pourra être restaurée.",
+            )
+        },
+        confirmButton = {
+            Button(onClick = {
+                onConfirm()
+                onDismiss()
+            }) { Text("Mettre à la corbeille") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
 }

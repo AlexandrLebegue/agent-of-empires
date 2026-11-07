@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.Instant
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -121,14 +122,13 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun togglePin(session: Session) {
-        viewModelScope.launch {
-            handleMutation(repository.setPinned(session.id, !session.isPinned))
-        }
+        val next = session.copy(pinnedAt = if (session.isPinned) null else Instant.now().toString())
+        optimistic(session, next) { repository.setPinned(session.id, !session.isPinned) }
     }
 
     fun toggleFavorite(session: Session) {
-        viewModelScope.launch {
-            handleMutation(repository.setFavorited(session.id, !session.favorited))
+        optimistic(session, session.copy(favorited = !session.favorited)) {
+            repository.setFavorited(session.id, !session.favorited)
         }
     }
 
@@ -136,19 +136,111 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         val muted = session.notifyOnWaiting == false &&
             session.notifyOnIdle == false &&
             session.notifyOnError == false
-        viewModelScope.launch {
-            handleMutation(repository.setMuted(session.id, !muted))
-        }
+        val next = session.copy(
+            notifyOnWaiting = !muted,
+            notifyOnIdle = !muted,
+            notifyOnError = !muted,
+        )
+        optimistic(session, next) { repository.setMuted(session.id, !muted) }
     }
 
     fun toggleRead(session: Session) {
-        viewModelScope.launch {
-            handleMutation(repository.setUnread(session.id, !session.unread))
+        optimistic(session, session.copy(unread = !session.unread)) {
+            repository.setUnread(session.id, !session.unread)
         }
+    }
+
+    fun rename(session: Session, title: String) {
+        val trimmed = title.trim()
+        if (trimmed.isBlank()) {
+            _ui.value = _ui.value.copy(message = "Le titre ne peut pas être vide")
+            return
+        }
+        optimistic(
+            session,
+            session.copy(title = trimmed),
+            successMessage = "Session renommée",
+        ) { repository.rename(session.id, trimmed) }
+    }
+
+    fun toggleArchive(session: Session) {
+        val archived = !session.isArchived
+        val next = session.copy(archivedAt = if (archived) Instant.now().toString() else null)
+        optimistic(
+            session,
+            next,
+            successMessage = if (archived) "Session archivée" else "Session désarchivée",
+            refreshAfter = true,
+        ) { repository.setArchived(session.id, archived) }
+    }
+
+    fun snooze(session: Session, minutes: Int?) {
+        val next = session.copy(
+            snoozedUntil = minutes?.let { Instant.now().plusSeconds(it * 60L).toString() },
+        )
+        optimistic(
+            session,
+            next,
+            successMessage = if (minutes == null) "Session réveillée" else "Session mise en pause",
+        ) { repository.setSnoozed(session.id, minutes) }
+    }
+
+    fun setColor(session: Session, color: String?) {
+        optimistic(
+            session,
+            session.copy(color = color),
+            successMessage = if (color == null) "Couleur effacée" else "Couleur appliquée",
+        ) { repository.setColor(session.id, color) }
+    }
+
+    fun trash(session: Session) {
+        optimistic(
+            session,
+            session.copy(trashedAt = Instant.now().toString()),
+            successMessage = "Session déplacée dans la corbeille",
+            refreshAfter = true,
+        ) { repository.trash(session.id) }
+    }
+
+    fun restore(session: Session) {
+        optimistic(
+            session,
+            session.copy(trashedAt = null),
+            successMessage = "Session restaurée",
+            refreshAfter = true,
+        ) { repository.restore(session.id) }
+    }
+
+    fun stop(session: Session) {
+        optimistic(
+            session,
+            session.copy(status = dev.proxboss.aoe.model.SessionStatus.STOPPED),
+            successMessage = "Arrêt demandé",
+            refreshAfter = true,
+        ) { repository.stop(session.id) }
+    }
+
+    fun start(session: Session) {
+        optimistic(
+            session,
+            session.copy(status = dev.proxboss.aoe.model.SessionStatus.STARTING),
+            successMessage = "Démarrage demandé",
+            refreshAfter = true,
+        ) { repository.start(session.id) }
+    }
+
+    fun restart(session: Session) {
+        optimistic(
+            session,
+            session.copy(status = dev.proxboss.aoe.model.SessionStatus.STARTING),
+            successMessage = "Redémarrage demandé",
+            refreshAfter = true,
+        ) { repository.restart(session.id) }
     }
 
     fun markRead(session: Session) {
         if (!session.unread) return
+        store.updateSession(session.id) { it.copy(unread = false) }
         viewModelScope.launch { repository.setUnread(session.id, false) }
     }
 
@@ -156,10 +248,30 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         _ui.value = _ui.value.copy(message = null, error = null)
     }
 
-    private suspend fun handleMutation(result: ApiResult<Unit>) {
-        when (result) {
-            is ApiResult.Ok -> _ui.value = _ui.value.copy(message = null)
-            is ApiResult.Err -> _ui.value = _ui.value.copy(message = result.message)
+    private fun optimistic(
+        previous: Session,
+        next: Session,
+        successMessage: String? = null,
+        refreshAfter: Boolean = false,
+        action: suspend () -> ApiResult<Unit>,
+    ) {
+        store.upsert(next)
+        viewModelScope.launch {
+            when (val result = action()) {
+                is ApiResult.Ok -> {
+                    if (successMessage != null) {
+                        _ui.value = _ui.value.copy(message = successMessage)
+                    }
+                    if (refreshAfter) {
+                        delay(600)
+                        refresh()
+                    }
+                }
+                is ApiResult.Err -> {
+                    store.upsert(previous)
+                    _ui.value = _ui.value.copy(message = result.message)
+                }
+            }
         }
     }
 
