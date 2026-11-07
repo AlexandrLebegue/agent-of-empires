@@ -122,7 +122,7 @@ private fun AoEApp(container: AppContainer, settings: AppSettings) {
     LaunchedEffect(settings.configured) {
         if (!settings.configured) return@LaunchedEffect
         container.authFailure.collect {
-            if (settings.configured) {
+            if (settings.configured && navController.currentDestination?.route != "setup") {
                 navController.navigate("setup") {
                     popUpTo(navController.graph.id) { inclusive = true }
                     launchSingleTop = true

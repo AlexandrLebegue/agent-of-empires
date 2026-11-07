@@ -22,9 +22,16 @@ class AppContainer(context: Context) {
     val pendingOpenSession = MutableStateFlow<String?>(null)
     val authFailure = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
+    @Volatile
+    private var lastAuthFailureAt = 0L
+
     init {
         client.onUnauthorized = {
-            authFailure.tryEmit(Unit)
+            val now = System.currentTimeMillis()
+            if (now - lastAuthFailureAt > 60_000) {
+                lastAuthFailureAt = now
+                authFailure.tryEmit(Unit)
+            }
         }
         scope.launch {
             settings.settings.collect { current ->
