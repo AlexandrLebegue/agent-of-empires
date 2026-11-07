@@ -76,6 +76,7 @@ class SessionDetailViewModel(
     private var acpFailed = false
     private var terminalFailed = false
     private var markedRead = false
+    private var reconnectAttempt = 0
 
     init {
         viewModelScope.launch {
@@ -105,6 +106,7 @@ class SessionDetailViewModel(
 
     fun retryConnection() {
         retryJob?.cancel()
+        reconnectAttempt = 0
         acpFailed = false
         terminalFailed = false
         chooseInitialTransport(_ui.value.session ?: store.session(sessionId))
@@ -112,6 +114,15 @@ class SessionDetailViewModel(
 
     fun dismissError() {
         _ui.value = _ui.value.copy(error = null)
+    }
+
+    fun onResume() {
+        viewModelScope.launch { refreshSession() }
+        if (!_ui.value.connected && !_ui.value.connecting &&
+            _ui.value.switchingAgent == null && _ui.value.sessionAction == null
+        ) {
+            retryConnection()
+        }
     }
 
     fun dismissNotice() {
@@ -412,7 +423,9 @@ class SessionDetailViewModel(
 
     private fun scheduleRetry() {
         if (retryJob?.isActive == true) return
-        reconnectSoon(8_000)
+        val delayMs = (2_000L shl reconnectAttempt.coerceAtMost(4)).coerceAtMost(30_000)
+        reconnectAttempt += 1
+        reconnectSoon(delayMs)
     }
 
     private fun reconnectSoon(delayMs: Long) {
@@ -428,6 +441,7 @@ class SessionDetailViewModel(
     private inner class AcpListener : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             if (socket !== webSocket) return
+            reconnectAttempt = 0
             _ui.value = _ui.value.copy(connecting = false, connected = true, error = null)
         }
 
@@ -486,6 +500,7 @@ class SessionDetailViewModel(
     private inner class TerminalListener : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             if (socket !== webSocket) return
+            reconnectAttempt = 0
             terminalFailed = false
             _ui.value = _ui.value.copy(connecting = false, connected = true, error = null)
         }

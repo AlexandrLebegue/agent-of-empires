@@ -70,6 +70,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
     private var pollJob: Job? = null
     private var searchJob: Job? = null
     private var socket: WebSocket? = null
+    private var reconnectAttempt = 0
 
     init {
         viewModelScope.launch {
@@ -316,6 +317,13 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         _ui.value = _ui.value.copy(message = null, error = null)
     }
 
+    fun onResume() {
+        refresh()
+        if (!_ui.value.live && socket == null) {
+            startStatusLoop()
+        }
+    }
+
     private fun optimistic(
         previous: Session,
         next: Session,
@@ -367,13 +375,16 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
                 signal.receive()
                 socket = null
                 _ui.value = _ui.value.copy(live = false)
-                delay(3_000)
+                val delayMs = RECONNECT_DELAYS[reconnectAttempt.coerceAtMost(RECONNECT_DELAYS.lastIndex)]
+                reconnectAttempt += 1
+                delay(delayMs)
             }
         }
     }
 
     private inner class StatusListener(private val signal: Channel<Unit>) : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            reconnectAttempt = 0
             _ui.value = _ui.value.copy(live = true, offline = false)
             viewModelScope.launch { refresh() }
         }
@@ -483,6 +494,10 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
             },
             unreadCount = visible.count { it.unread },
         )
+    }
+
+    companion object {
+        private val RECONNECT_DELAYS = longArrayOf(2_000, 5_000, 10_000, 20_000, 30_000)
     }
 
     override fun onCleared() {

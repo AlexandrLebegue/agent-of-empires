@@ -80,6 +80,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.proxboss.aoe.model.SearchHit
 import dev.proxboss.aoe.model.Session
@@ -104,6 +106,10 @@ fun SessionsScreen(
     var snoozeTarget by remember { mutableStateOf<Session?>(null) }
     var colorTarget by remember { mutableStateOf<Session?>(null) }
     var trashTarget by remember { mutableStateOf<Session?>(null) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.onResume()
+    }
 
     LaunchedEffect(ui.message) {
         ui.message?.let {

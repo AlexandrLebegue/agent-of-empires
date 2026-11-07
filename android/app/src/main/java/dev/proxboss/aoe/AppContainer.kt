@@ -8,6 +8,7 @@ import dev.proxboss.aoe.net.AoeClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -19,8 +20,12 @@ class AppContainer(context: Context) {
     val sessionStore = SessionStore()
     val repository = SessionRepository(client, sessionStore, settings)
     val pendingOpenSession = MutableStateFlow<String?>(null)
+    val authFailure = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     init {
+        client.onUnauthorized = {
+            authFailure.tryEmit(Unit)
+        }
         scope.launch {
             settings.settings.collect { current ->
                 client.configure(current.baseUrl, current.token)

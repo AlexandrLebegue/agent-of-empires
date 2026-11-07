@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,6 +48,7 @@ import dev.proxboss.aoe.ui.theme.AoETheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         handleIntent(intent)
         setContent {
             val container = (application as AoEApplication).container
@@ -111,6 +113,18 @@ private fun AoEApp(container: AppContainer, settings: AppSettings) {
                 ContextCompat.startForegroundService(context, intent)
             } else {
                 context.stopService(intent)
+            }
+        }
+    }
+
+    LaunchedEffect(settings.configured) {
+        if (!settings.configured) return@LaunchedEffect
+        container.authFailure.collect {
+            if (settings.configured) {
+                navController.navigate("setup") {
+                    popUpTo(navController.graph.id) { inclusive = true }
+                    launchSingleTop = true
+                }
             }
         }
     }

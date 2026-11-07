@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -72,6 +73,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.proxboss.aoe.model.AcpControl
 import dev.proxboss.aoe.model.Approval
@@ -99,6 +102,10 @@ fun SessionDetailScreen(
     var composer by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
     val terminalScroll = rememberScrollState()
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.onResume()
+    }
 
     LaunchedEffect(ui.rows) {
         if (ui.rows.isNotEmpty()) {
@@ -431,16 +438,18 @@ private fun TerminalPane(text: String, scrollState: androidx.compose.foundation.
         color = Color(0xFF0B0E10),
         modifier = Modifier.fillMaxSize(),
     ) {
-        Text(
-            text = text.ifBlank { "Terminal vide." },
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(8.dp),
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            color = Color(0xFFD5E2DF),
-        )
+        SelectionContainer {
+            Text(
+                text = text.ifBlank { "Terminal vide." },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(8.dp),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                color = Color(0xFFD5E2DF),
+            )
+        }
     }
 }
 
@@ -511,12 +520,14 @@ private fun MessageRow(item: MessageDisplay) {
             }
         }
     } else {
-        MarkdownText(
-            text = item.text,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp),
-        )
+        SelectionContainer {
+            MarkdownText(
+                text = item.text,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp),
+            )
+        }
     }
 }
 
