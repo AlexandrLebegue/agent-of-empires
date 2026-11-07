@@ -308,17 +308,11 @@ fun SessionsScreen(
 
                     if (ui.groups.isEmpty() && !ui.loading) {
                         item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 60.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    if (ui.query.isNotBlank()) "Aucune session ne correspond." else "Aucune session.",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            EmptySessions(
+                                hasQuery = ui.query.isNotBlank(),
+                                onCreateSession = onCreateSession,
+                                onClearQuery = { viewModel.setQuery("") },
+                            )
                         }
                     }
 
@@ -750,8 +744,8 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                     )
                 }
                 Box {
-                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Actions", modifier = Modifier.size(18.dp))
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Actions de la session", modifier = Modifier.size(18.dp))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (session.isTrashed) {
@@ -1256,4 +1250,48 @@ private fun WorkspaceOrderDialog(
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
         dismissButton = {},
     )
+}
+
+
+@Composable
+private fun EmptySessions(
+    hasQuery: Boolean,
+    onCreateSession: () -> Unit,
+    onClearQuery: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 56.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            Icons.Default.Folder,
+            contentDescription = null,
+            modifier = Modifier.size(52.dp),
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+        )
+        Spacer(Modifier.height(14.dp))
+        Text(
+            if (hasQuery) "Aucune session ne correspond" else "Aucune session pour le moment",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (hasQuery) {
+                "Essayez un autre terme, ou effacez la recherche pour retrouver vos sessions."
+            } else {
+                "Créez votre première session Agent of Empires depuis le téléphone."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(18.dp))
+        Button(onClick = if (hasQuery) onClearQuery else onCreateSession) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(Modifier.width(6.dp))
+            Text(if (hasQuery) "Effacer la recherche" else "Nouvelle session")
+        }
+    }
 }

@@ -70,6 +70,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -658,6 +662,10 @@ private fun ToolRow(item: ToolDisplay) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .semantics {
+                role = Role.Button
+                contentDescription = "${item.name}, ${if (expanded) "réduire" else "développer"} le détail"
+            }
             .clickable { expanded = !expanded },
         colors = CardDefaults.cardColors(
             containerColor = if (item.isError) {
@@ -933,6 +941,7 @@ private fun ComposerArea(
                 FilledIconButton(
                     onClick = onSend,
                     enabled = value.isNotBlank() && !ui.sending,
+                    modifier = Modifier.size(48.dp),
                 ) {
                     if (ui.sending) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)

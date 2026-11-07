@@ -280,6 +280,11 @@ private fun ServerTab(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (ui.about == null && ui.health == null && ui.update == null &&
+            ui.logs == null && ui.logsError == null
+        ) {
+            item { LoadingRow() }
+        }
         ui.about?.let { about ->
             item {
                 SectionCard("Serveur") {
@@ -394,6 +399,9 @@ private fun McpTab(
                 Button(onClick = onCreate) { Text("Ajouter") }
             }
         }
+        if (ui.mcp == null && ui.mcpError == null) {
+            item { LoadingRow() }
+        }
         ui.mcpError?.let { error ->
             item { Text(error, color = MaterialTheme.colorScheme.error) }
         }
@@ -481,6 +489,9 @@ private fun SkillsTab(
                 Button(onClick = onCreate) { Text("Nouveau") }
             }
         }
+        if (ui.skills == null && ui.skillsError == null) {
+            item { LoadingRow() }
+        }
         ui.skillsError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
         ui.skills?.skills?.let { skills ->
             if (skills.isEmpty()) {
@@ -540,6 +551,9 @@ private fun PluginsTab(ui: ManagementUiState, onToggle: (String, Boolean) -> Uni
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (ui.plugins == null && ui.pluginsError == null) {
+            item { LoadingRow() }
+        }
         ui.pluginsError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
         ui.plugins?.loadErrors?.forEach { error ->
             item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -605,6 +619,9 @@ private fun ProfilesTab(
                 Button(onClick = onCreate) { Text("Créer") }
             }
         }
+        if (ui.profiles.isEmpty() && ui.profilesError == null) {
+            item { LoadingRow() }
+        }
         ui.profilesError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
         items(ui.profiles, key = { it.name }) { profile ->
             SectionCard(profile.name) {
@@ -638,6 +655,9 @@ private fun SecurityTab(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (ui.devices.isEmpty() && ui.passkeys.isEmpty() && ui.securityError == null) {
+            item { LoadingRow() }
+        }
         ui.securityError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
         item { Text("Appareils connectés", style = MaterialTheme.typography.titleMedium) }
         if (ui.devices.isEmpty()) {
@@ -941,4 +961,17 @@ private fun formatBytes(bytes: Long): String {
         unit++
     }
     return "%.1f %s".format(value, units[unit])
+}
+
+
+@Composable
+private fun LoadingRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 18.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+    }
 }
