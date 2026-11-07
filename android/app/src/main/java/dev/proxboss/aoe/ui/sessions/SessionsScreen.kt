@@ -54,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -106,6 +107,12 @@ fun SessionsScreen(
     var snoozeTarget by remember { mutableStateOf<Session?>(null) }
     var colorTarget by remember { mutableStateOf<Session?>(null) }
     var trashTarget by remember { mutableStateOf<Session?>(null) }
+    var moveGroupTarget by remember { mutableStateOf<Session?>(null) }
+    var renameGroupTarget by remember { mutableStateOf<String?>(null) }
+    var deleteGroupTarget by remember { mutableStateOf<String?>(null) }
+    var createGroupOpen by remember { mutableStateOf(false) }
+    var workspaceOrderOpen by remember { mutableStateOf(false) }
+    var mainMenuOpen by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.onResume()
@@ -153,6 +160,27 @@ fun SessionsScreen(
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Réglages")
+                    }
+                    Box {
+                        IconButton(onClick = { mainMenuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Plus d'actions")
+                        }
+                        DropdownMenu(expanded = mainMenuOpen, onDismissRequest = { mainMenuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Nouveau groupe") },
+                                onClick = {
+                                    mainMenuOpen = false
+                                    createGroupOpen = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ordre des workspaces") },
+                                onClick = {
+                                    mainMenuOpen = false
+                                    workspaceOrderOpen = true
+                                },
+                            )
+                        }
                     }
                 },
             )
@@ -296,7 +324,12 @@ fun SessionsScreen(
 
                     ui.groups.forEach { group ->
                         item(key = "group-${group.path}") {
-                            GroupHeader(group, onClick = { viewModel.toggleGroup(group.path) })
+                            GroupHeader(
+                                group,
+                                onClick = { viewModel.toggleGroup(group.path) },
+                                onRename = { renameGroupTarget = group.path },
+                                onDelete = { deleteGroupTarget = group.path },
+                            )
                         }
                         if (!group.collapsed) {
                             items(group.sessions, key = { it.id }) { session ->
@@ -322,6 +355,7 @@ fun SessionsScreen(
                                     onRestart = { viewModel.restart(session) },
                                     onMoveUp = { viewModel.reorder(session, up = true) },
                                     onMoveDown = { viewModel.reorder(session, up = false) },
+                                    onMoveGroup = { moveGroupTarget = session },
                                 ),
                             )
                             }
@@ -359,6 +393,59 @@ fun SessionsScreen(
             session = session,
             onDismiss = { trashTarget = null },
             onConfirm = { viewModel.trash(session) },
+        )
+    }
+    moveGroupTarget?.let { session ->
+        MoveSessionGroupDialog(
+            session = session,
+            groups = ui.groups.map { it.path }.filter { it.isNotBlank() }.distinct(),
+            onDismiss = { moveGroupTarget = null },
+            onSelect = { group ->
+                viewModel.moveSessionToGroup(session, group)
+                moveGroupTarget = null
+            },
+        )
+    }
+    createGroupOpen.takeIf { it }?.let {
+        GroupPathDialog(
+            title = "Nouveau groupe",
+            initial = "",
+            confirmLabel = "Créer",
+            onDismiss = { createGroupOpen = false },
+            onConfirm = { path ->
+                viewModel.createGroup(path)
+                createGroupOpen = false
+            },
+        )
+    }
+    renameGroupTarget?.let { path ->
+        GroupPathDialog(
+            title = "Renommer le groupe",
+            initial = path,
+            confirmLabel = "Renommer",
+            onDismiss = { renameGroupTarget = null },
+            onConfirm = { next ->
+                viewModel.renameGroup(path, next)
+                renameGroupTarget = null
+            },
+        )
+    }
+    deleteGroupTarget?.let { path ->
+        DeleteGroupDialog(
+            path = path,
+            sessionCount = ui.groups.firstOrNull { it.path == path }?.sessions?.size ?: 0,
+            onDismiss = { deleteGroupTarget = null },
+            onConfirm = { mode ->
+                viewModel.deleteGroup(path, mode)
+                deleteGroupTarget = null
+            },
+        )
+    }
+    if (workspaceOrderOpen) {
+        WorkspaceOrderDialog(
+            workspaces = ui.workspaces,
+            onMove = viewModel::moveWorkspace,
+            onDismiss = { workspaceOrderOpen = false },
         )
     }
 }
@@ -412,7 +499,13 @@ private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun GroupHeader(group: SessionGroupUi, onClick: () -> Unit) {
+private fun GroupHeader(
+    group: SessionGroupUi,
+    onClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -447,6 +540,33 @@ private fun GroupHeader(group: SessionGroupUi, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (group.path.isNotBlank()) {
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Actions du groupe",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Renommer le groupe") },
+                        onClick = {
+                            menuOpen = false
+                            onRename()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Supprimer le groupe") },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -503,6 +623,7 @@ private class SessionRowActions(
     val onRestart: () -> Unit,
     val onMoveUp: () -> Unit,
     val onMoveDown: () -> Unit,
+    val onMoveGroup: () -> Unit,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -661,6 +782,13 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                                 onClick = {
                                     menuOpen = false
                                     actions.onColor()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Déplacer vers un groupe") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onMoveGroup()
                                 },
                             )
                             DropdownMenuItem(
@@ -952,5 +1080,180 @@ private fun TrashSessionDialog(session: Session, onDismiss: () -> Unit, onConfir
             }) { Text("Mettre à la corbeille") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+
+@Composable
+private fun GroupPathDialog(
+    title: String,
+    initial: String,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by remember(initial) { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                singleLine = true,
+                label = { Text("Chemin du groupe") },
+                placeholder = { Text("equipe/projet") },
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(value)
+                },
+                enabled = value.isNotBlank(),
+            ) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun MoveSessionGroupDialog(
+    session: Session,
+    groups: List<String>,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Déplacer la session") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Groupe actuel : ${session.groupPath.ifBlank { "Sans groupe" }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = { onSelect("") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Sans groupe") }
+                groups.forEach { group ->
+                    TextButton(
+                        onClick = { onSelect(group) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(group) }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun DeleteGroupDialog(
+    path: String,
+    sessionCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var mode by remember { mutableStateOf(if (sessionCount == 0) "keep_sessions" else "move_to_parent") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Supprimer le groupe") },
+        text = {
+            Column {
+                Text(path, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                Text(
+                    "Sessions concernées : $sessionCount",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val options = listOf(
+                    "move_to_parent" to "Déplacer les sessions vers le parent",
+                    "keep_sessions" to "Conserver les sessions, sans groupe",
+                    "delete_sessions" to "Supprimer définitivement les sessions",
+                )
+                options.forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { mode = value }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = mode == value, onClick = { mode = value })
+                        Text(
+                            label,
+                            color = if (value == "delete_sessions") {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                    }
+                }
+                if (mode == "delete_sessions") {
+                    Text(
+                        "Cette action est destructive et supprime les fichiers gérés par AoE.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(mode) }) {
+                Text(if (mode == "delete_sessions") "Supprimer tout" else "Supprimer le groupe")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun WorkspaceOrderDialog(
+    workspaces: List<WorkspaceUi>,
+    onMove: (Int, Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ordre des workspaces") },
+        text = {
+            if (workspaces.isEmpty()) {
+                Text("Aucun workspace.")
+            } else {
+                Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                    workspaces.forEachIndexed { index, workspace ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                workspace.label,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            TextButton(
+                                onClick = { onMove(index, -1) },
+                                enabled = index > 0,
+                            ) { Text("Monter") }
+                            TextButton(
+                                onClick = { onMove(index, 1) },
+                                enabled = index < workspaces.lastIndex,
+                            ) { Text("Descendre") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+        dismissButton = {},
     )
 }

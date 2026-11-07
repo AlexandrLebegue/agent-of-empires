@@ -13,6 +13,13 @@ class SessionStore {
     private val _models = MutableStateFlow<Map<String, String>>(emptyMap())
     val models: StateFlow<Map<String, String>> = _models.asStateFlow()
 
+    private val _workspaceOrdering = MutableStateFlow<List<String>>(emptyList())
+    val workspaceOrdering: StateFlow<List<String>> = _workspaceOrdering.asStateFlow()
+
+    fun setWorkspaceOrdering(order: List<String>) {
+        _workspaceOrdering.value = order
+    }
+
     fun replaceAll(sessions: List<Session>) {
         val models = _models.value
         _sessions.value = sessions.map { session ->

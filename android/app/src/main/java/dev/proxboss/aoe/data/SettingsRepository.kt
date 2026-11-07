@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
 import org.json.JSONObject
 
 const val DEFAULT_BASE_URL = "http://192.168.1.60:8080"
@@ -46,6 +47,7 @@ class SettingsRepository(private val context: Context) {
         val theme = stringPreferencesKey("theme")
         val permissionAsked = booleanPreferencesKey("permission_asked")
         val models = stringPreferencesKey("session_models")
+        val collapsedGroups = stringPreferencesKey("collapsed_groups")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data
@@ -67,6 +69,10 @@ class SettingsRepository(private val context: Context) {
     val models: Flow<Map<String, String>> = context.settingsDataStore.data
         .catch { emit(androidx.datastore.preferences.core.emptyPreferences()) }
         .map { preferences -> parseModels(preferences[Keys.models]) }
+
+    val collapsedGroups: Flow<Set<String>> = context.settingsDataStore.data
+        .catch { emit(androidx.datastore.preferences.core.emptyPreferences()) }
+        .map { preferences -> parseCollapsedGroups(preferences[Keys.collapsedGroups]) }
 
     suspend fun current(): AppSettings = settings.first()
 
@@ -106,6 +112,15 @@ class SettingsRepository(private val context: Context) {
         context.settingsDataStore.edit { it[Keys.permissionAsked] = true }
     }
 
+    suspend fun setGroupCollapsed(path: String, collapsed: Boolean) {
+        if (path.isBlank()) return
+        context.settingsDataStore.edit { preferences ->
+            val groups = parseCollapsedGroups(preferences[Keys.collapsedGroups]).toMutableSet()
+            if (collapsed) groups.add(path) else groups.remove(path)
+            preferences[Keys.collapsedGroups] = JSONArray(groups.sorted()).toString()
+        }
+    }
+
     suspend fun putModel(sessionId: String, model: String) {
         if (sessionId.isBlank() || model.isBlank()) return
         context.settingsDataStore.edit { preferences ->
@@ -117,6 +132,19 @@ class SettingsRepository(private val context: Context) {
                 }.toString()
             }
         }
+    }
+
+    private fun parseCollapsedGroups(raw: String?): Set<String> {
+        if (raw.isNullOrBlank()) return emptySet()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildSet {
+                for (index in 0 until array.length()) {
+                    val value = array.optString(index)
+                    if (value.isNotBlank()) add(value)
+                }
+            }
+        }.getOrDefault(emptySet())
     }
 
     private fun parseModels(raw: String?): Map<String, String> {

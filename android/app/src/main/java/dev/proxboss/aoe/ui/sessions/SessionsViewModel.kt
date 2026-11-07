@@ -30,6 +30,11 @@ enum class SessionSortMode(val labelFr: String) {
     MANUAL("Ordre manuel"),
 }
 
+data class WorkspaceUi(
+    val id: String,
+    val label: String,
+)
+
 data class SessionGroupUi(
     val path: String,
     val label: String,
@@ -56,12 +61,15 @@ data class SessionsUiState(
     val activeCount: Int = 0,
     val waitingCount: Int = 0,
     val unreadCount: Int = 0,
+    val workspaceOrdering: List<String> = emptyList(),
+    val workspaces: List<WorkspaceUi> = emptyList(),
 )
 
 class SessionsViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as AoEApplication).container
     private val store = container.sessionStore
     private val repository = container.repository
+    private val settings = container.settings
 
     private val _ui = MutableStateFlow(SessionsUiState())
     val ui: StateFlow<SessionsUiState> = _ui.asStateFlow()
@@ -76,6 +84,16 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             store.sessions.collect { sessions ->
                 _ui.value = recompute(_ui.value.copy(sessions = sessions))
+            }
+        }
+        viewModelScope.launch {
+            store.workspaceOrdering.collect { ordering ->
+                _ui.value = recompute(_ui.value.copy(workspaceOrdering = ordering))
+            }
+        }
+        viewModelScope.launch {
+            settings.collapsedGroups.collect { collapsed ->
+                _ui.value = recompute(_ui.value.copy(collapsedGroups = collapsed))
             }
         }
         viewModelScope.launch { refresh(showSpinner = true) }
@@ -118,9 +136,96 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun toggleGroup(path: String) {
+        if (path.isBlank()) return
         val collapsed = _ui.value.collapsedGroups
-        val next = if (path in collapsed) collapsed - path else collapsed + path
+        val nowCollapsed = path !in collapsed
+        val next = if (nowCollapsed) collapsed + path else collapsed - path
         _ui.value = recompute(_ui.value.copy(collapsedGroups = next))
+        viewModelScope.launch {
+            settings.setGroupCollapsed(path, nowCollapsed)
+            repository.collapseGroup(path, nowCollapsed)
+        }
+    }
+
+    fun createGroup(path: String) {
+        val trimmed = path.trim().trimEnd('/')
+        if (trimmed.isBlank()) {
+            _ui.value = _ui.value.copy(message = "Le chemin du groupe est vide")
+            return
+        }
+        viewModelScope.launch {
+            when (val result = repository.createGroup(trimmed)) {
+                is ApiResult.Ok -> {
+                    _ui.value = _ui.value.copy(message = "Groupe créé")
+                    loadGroups()
+                    refresh()
+                }
+                is ApiResult.Err -> _ui.value = _ui.value.copy(message = result.message)
+            }
+        }
+    }
+
+    fun renameGroup(oldPath: String, newPath: String) {
+        val trimmed = newPath.trim().trimEnd('/')
+        if (trimmed.isBlank()) {
+            _ui.value = _ui.value.copy(message = "Le chemin du groupe est vide")
+            return
+        }
+        viewModelScope.launch {
+            when (val result = repository.renameGroup(oldPath, trimmed)) {
+                is ApiResult.Ok -> {
+                    _ui.value = _ui.value.copy(message = "Groupe renommé")
+                    loadGroups()
+                    refresh()
+                }
+                is ApiResult.Err -> _ui.value = _ui.value.copy(message = result.message)
+            }
+        }
+    }
+
+    fun deleteGroup(path: String, mode: String) {
+        viewModelScope.launch {
+            when (val result = repository.deleteGroup(path, mode)) {
+                is ApiResult.Ok -> {
+                    _ui.value = _ui.value.copy(message = "Groupe supprimé")
+                    loadGroups()
+                    refresh()
+                }
+                is ApiResult.Err -> _ui.value = _ui.value.copy(message = result.message)
+            }
+        }
+    }
+
+    fun moveSessionToGroup(session: Session, group: String) {
+        optimistic(
+            session,
+            session.copy(groupPath = group),
+            successMessage = if (group.isBlank()) "Session déplacée hors groupe" else "Session déplacée vers $group",
+        ) { repository.moveSessionToGroup(session.id, group) }
+    }
+
+    fun moveWorkspace(index: Int, delta: Int) {
+        val workspaces = _ui.value.workspaces
+        val target = index + delta
+        if (index !in workspaces.indices || target !in workspaces.indices) return
+        val reordered = workspaces.toMutableList().apply {
+            val item = removeAt(index)
+            add(target, item)
+        }
+        val previous = _ui.value.workspaceOrdering
+        val order = reordered.map { it.id }
+        _ui.value = recompute(_ui.value.copy(workspaceOrdering = order, workspaces = reordered))
+        viewModelScope.launch {
+            when (val result = repository.updateWorkspaceOrdering(order)) {
+                is ApiResult.Ok -> _ui.value = _ui.value.copy(message = "Ordre des workspaces enregistré")
+                is ApiResult.Err -> {
+                    store.setWorkspaceOrdering(previous)
+                    _ui.value = recompute(
+                        _ui.value.copy(workspaceOrdering = previous, message = result.message),
+                    )
+                }
+            }
+        }
     }
 
     fun toggleSortMode() {
@@ -480,9 +585,35 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
             }
 
         val visible = state.sessions.filterNot { it.isTrashed }
+        val workspaceMap = LinkedHashMap<String, Session>()
+        for (session in visible) {
+            val repoPath = (session.mainRepoPath ?: session.projectPath).trimEnd('/')
+            val id = if (!session.branch.isNullOrBlank()) {
+                "$repoPath::${session.branch}"
+            } else {
+                "$repoPath::__session__::${session.id}"
+            }
+            workspaceMap.putIfAbsent(id, session)
+        }
+        val rank = state.workspaceOrdering.withIndex().associate { it.value to it.index }
+        val workspaces = workspaceMap.entries
+            .sortedWith(
+                compareBy<Map.Entry<String, Session>> { rank[it.key] ?: Int.MAX_VALUE }
+                    .thenBy { it.value.title.lowercase() },
+            )
+            .map { (id, session) ->
+                WorkspaceUi(
+                    id = id,
+                    label = buildString {
+                        append(session.title)
+                        if (!session.branch.isNullOrBlank()) append(" · ${session.branch}")
+                    },
+                )
+            }
         return state.copy(
             groups = groups,
             titles = state.sessions.associate { it.id to it.title },
+            workspaces = workspaces,
             activeCount = visible.count {
                 !it.isArchived && (it.status == dev.proxboss.aoe.model.SessionStatus.RUNNING ||
                     it.status == dev.proxboss.aoe.model.SessionStatus.WAITING ||

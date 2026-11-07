@@ -64,6 +64,7 @@ object SessionMapper {
             createdAt = TimeFormat.parseInstant(row.stringOrNull("created_at")),
             lastError = row.stringOrNull("last_error"),
             branch = row.stringOrNull("branch"),
+            mainRepoPath = row.stringOrNull("main_repo_path"),
             color = row.stringOrNull("color"),
             profile = row.stringOrEmpty("profile"),
             parentSessionId = row.stringOrNull("parent_session_id"),

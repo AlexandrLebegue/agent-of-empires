@@ -59,6 +59,9 @@ class AoeClient(
     suspend fun delete(path: String, body: String? = null): ApiResult<String> =
         request("DELETE", path, body)
 
+    suspend fun put(path: String, body: String): ApiResult<String> =
+        request("PUT", path, body)
+
     suspend fun postRaw(path: String, body: String? = null): ApiResult<HttpReply> =
         rawRequest("POST", path, body)
 
@@ -115,6 +118,7 @@ class AoeClient(
             when (method) {
                 "POST" -> requestBuilder.post((body ?: "").toRequestBody(JSON_MEDIA))
                 "PATCH" -> requestBuilder.patch((body ?: "").toRequestBody(JSON_MEDIA))
+                "PUT" -> requestBuilder.put((body ?: "").toRequestBody(JSON_MEDIA))
                 "DELETE" -> requestBuilder.delete((body ?: "").toRequestBody(JSON_MEDIA))
                 else -> requestBuilder.get()
             }

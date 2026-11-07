@@ -49,6 +49,7 @@ data class Session(
     val createdAt: Instant?,
     val lastError: String?,
     val branch: String?,
+    val mainRepoPath: String? = null,
     val color: String? = null,
     val profile: String = "",
     val parentSessionId: String? = null,

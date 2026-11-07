@@ -35,6 +35,7 @@ class SessionRepository(
             is ApiResult.Ok -> runCatching {
                 val envelope = SessionMapper.parseEnvelope(result.value)
                 store.replaceAll(envelope.sessions)
+                store.setWorkspaceOrdering(envelope.workspaceOrdering)
             }.fold(
                 onSuccess = { ApiResult.Ok(Unit) },
                 onFailure = { ApiResult.Err("Réponse du serveur illisible") },
@@ -46,6 +47,60 @@ class SessionRepository(
 
     suspend fun fetchGroups(): ApiResult<List<GroupInfo>> =
         client.get("/api/groups").map { CreationMapper.parseGroups(it) }
+
+    suspend fun createGroup(path: String, profile: String = "main"): ApiResult<Unit> {
+        val body = JSONObject().put("profile", profile).put("path", path).toString()
+        return when (val result = client.post("/api/groups", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun renameGroup(oldPath: String, newPath: String, profile: String = "main"): ApiResult<Unit> {
+        val body = JSONObject()
+            .put("source", JSONObject().put("profile", profile).put("path", oldPath))
+            .put("target", JSONObject().put("profile", profile).put("path", newPath))
+            .toString()
+        return when (val result = client.patch("/api/groups", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun deleteGroup(path: String, mode: String, profile: String = "main"): ApiResult<Unit> {
+        val body = JSONObject()
+            .put("group", JSONObject().put("profile", profile).put("path", path))
+            .put("mode", mode)
+            .put("cleanup", JSONObject())
+            .toString()
+        return when (val result = client.delete("/api/groups", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun collapseGroup(path: String, collapsed: Boolean, profile: String = "main") {
+        if (path.isBlank()) return
+        val body = JSONObject()
+            .put("group", JSONObject().put("profile", profile).put("path", path))
+            .put("collapsed", collapsed)
+            .toString()
+        runCatching { client.patch("/api/groups/collapse", body) }
+    }
+
+    suspend fun moveSessionToGroup(id: String, group: String): ApiResult<Unit> =
+        patchMutation(id, "/api/sessions/$id/group", JSONObject().put("group", group).toString())
+
+    suspend fun updateWorkspaceOrdering(order: List<String>): ApiResult<Unit> {
+        val body = JSONObject().put("order", org.json.JSONArray(order)).toString()
+        return when (val result = client.put("/api/workspace-ordering", body)) {
+            is ApiResult.Ok -> {
+                store.setWorkspaceOrdering(order)
+                ApiResult.Ok(Unit)
+            }
+            is ApiResult.Err -> result
+        }
+    }
 
     suspend fun fetchAgents(): ApiResult<List<AgentInfo>> =
         client.get("/api/agents").map { CreationMapper.parseAgents(it) }
