@@ -1,6 +1,7 @@
 package dev.proxboss.aoe.data
 
 import dev.proxboss.aoe.model.AcpControl
+import dev.proxboss.aoe.model.AcpMode
 import dev.proxboss.aoe.model.Approval
 import dev.proxboss.aoe.model.ApprovalOption
 import dev.proxboss.aoe.model.ConfigOption
@@ -31,6 +32,8 @@ data class ReducedStatePayload(
     val model: String? = null,
     val mode: String? = null,
     val configOptions: List<ConfigOption>? = null,
+    val availableModes: List<AcpMode>? = null,
+    val currentModeId: String? = null,
     val pendingApprovals: List<Approval>? = null,
     val pendingElicitationCount: Int? = null,
     val turnActive: Boolean? = null,
@@ -43,6 +46,8 @@ data class ReducedStatePayload(
         model = model,
         mode = mode ?: previous.mode,
         configOptions = configOptions ?: previous.configOptions,
+        availableModes = availableModes ?: previous.availableModes,
+        currentModeId = currentModeId ?: previous.currentModeId,
         pendingApprovals = pendingApprovals ?: previous.pendingApprovals,
         pendingElicitationCount = pendingElicitationCount ?: previous.pendingElicitationCount,
         turnActive = turnActive ?: previous.turnActive,
@@ -89,6 +94,11 @@ object AcpFrameParser {
         } else {
             null
         }
+        val availableModes = if (state.has("available_modes") && !state.isNull("available_modes")) {
+            parseAvailableModes(state.optJSONArray("available_modes") ?: JSONArray())
+        } else {
+            null
+        }
         val approvals = if (state.has("pending_approvals") && !state.isNull("pending_approvals")) {
             parseApprovals(state.optJSONArray("pending_approvals") ?: JSONArray())
         } else {
@@ -110,6 +120,8 @@ object AcpFrameParser {
             model = state.stringOrNull("model"),
             mode = state.stringOrNull("mode"),
             configOptions = configOptions,
+            availableModes = availableModes,
+            currentModeId = state.stringOrNull("current_mode_id"),
             pendingApprovals = approvals,
             pendingElicitationCount = elicitations?.length() ?: 0,
             turnActive = state.optBoolean("turn_active", false),
@@ -230,7 +242,7 @@ object AcpFrameParser {
         }
     }
 
-    private fun parseConfigOptions(array: JSONArray): List<ConfigOption> = buildList {
+    internal fun parseConfigOptions(array: JSONArray): List<ConfigOption> = buildList {
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
             val values = item.optJSONArray("options")
@@ -253,6 +265,19 @@ object AcpFrameParser {
                             }
                         }
                     },
+                ),
+            )
+        }
+    }
+
+    private fun parseAvailableModes(array: JSONArray): List<AcpMode> = buildList {
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            add(
+                AcpMode(
+                    id = item.stringOrEmpty("id"),
+                    name = item.stringOrEmpty("name").ifBlank { item.stringOrEmpty("id") },
+                    description = item.stringOrEmpty("description"),
                 ),
             )
         }

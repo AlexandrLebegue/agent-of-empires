@@ -1,10 +1,22 @@
 package dev.proxboss.aoe.data
 
+import dev.proxboss.aoe.model.AcpAgent
+import dev.proxboss.aoe.model.AgentInfo
 import dev.proxboss.aoe.model.Approval
+import dev.proxboss.aoe.model.BranchInfo
+import dev.proxboss.aoe.model.BrowseResult
+import dev.proxboss.aoe.model.ConfigOption
+import dev.proxboss.aoe.model.CreateSessionRequest
+import dev.proxboss.aoe.model.CreateSessionResult
+import dev.proxboss.aoe.model.CreationProgress
+import dev.proxboss.aoe.model.CreationTrustReview
+import dev.proxboss.aoe.model.GroupInfo
+import dev.proxboss.aoe.model.RecentProject
 import dev.proxboss.aoe.model.SearchHit
 import dev.proxboss.aoe.model.Session
 import dev.proxboss.aoe.net.AoeClient
 import dev.proxboss.aoe.net.ApiResult
+import dev.proxboss.aoe.net.HttpReply
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.UUID
@@ -22,11 +34,206 @@ class SessionRepository(
         return when (val result = client.get("/api/sessions?state=all")) {
             is ApiResult.Ok -> runCatching {
                 val envelope = SessionMapper.parseEnvelope(result.value)
-                store.replaceAll(envelope.sessions.filterNot { it.isTrashed })
+                store.replaceAll(envelope.sessions)
             }.fold(
                 onSuccess = { ApiResult.Ok(Unit) },
                 onFailure = { ApiResult.Err("Réponse du serveur illisible") },
             )
+            is ApiResult.Err -> result
+        }
+    }
+
+
+    suspend fun fetchGroups(): ApiResult<List<GroupInfo>> =
+        client.get("/api/groups").map { CreationMapper.parseGroups(it) }
+
+    suspend fun fetchAgents(): ApiResult<List<AgentInfo>> =
+        client.get("/api/agents").map { CreationMapper.parseAgents(it) }
+
+    suspend fun fetchAcpAgents(): ApiResult<List<AcpAgent>> =
+        client.get("/api/acp/agents").map { CreationMapper.parseAcpAgents(it) }
+
+    suspend fun fetchOptionCatalog(): ApiResult<Map<String, List<ConfigOption>>> =
+        client.get("/api/acp/option-catalog").map { CreationMapper.parseOptionCatalog(it) }
+
+    suspend fun fetchHome(): ApiResult<String> =
+        client.get("/api/filesystem/home").map { CreationMapper.parseHome(it) }
+
+    suspend fun browse(path: String, showHidden: Boolean = false, filter: String? = null): ApiResult<BrowseResult> {
+        val query = buildString {
+            append("?path=").append(encode(path))
+            if (showHidden) append("&show_hidden=true")
+            if (!filter.isNullOrBlank()) append("&filter=").append(encode(filter))
+        }
+        return client.get("/api/filesystem/browse$query").map { CreationMapper.parseBrowse(it) }
+    }
+
+    suspend fun fetchRecentProjects(): ApiResult<List<RecentProject>> =
+        client.get("/api/recent-projects").map { CreationMapper.parseRecentProjects(it) }
+
+    suspend fun isGitRepo(path: String): ApiResult<Boolean> =
+        client.get("/api/git/is-repo?path=${encode(path)}").map { CreationMapper.parseIsGitRepo(it) }
+
+    suspend fun fetchBranches(path: String, includeRemote: Boolean = false): ApiResult<List<BranchInfo>> {
+        val query = buildString {
+            append("?path=").append(encode(path))
+            if (includeRemote) append("&include_remote=true")
+        }
+        return client.get("/api/git/branches$query").map { CreationMapper.parseBranches(it) }
+    }
+
+    suspend fun reviewCreationTrust(path: String, scratch: Boolean): ApiResult<CreationTrustReview?> {
+        val body = JSONObject()
+            .put("path", path)
+            .put("scratch", scratch)
+            .toString()
+        return when (val result = client.postRaw("/api/sessions/creation-trust", body)) {
+            is ApiResult.Ok -> {
+                val reply = result.value
+                when {
+                    reply.isSuccessful -> runCatching { CreationMapper.parseTrust(reply.body) }
+                        .fold(
+                            onSuccess = { ApiResult.Ok(it) },
+                            onFailure = { ApiResult.Err("Réponse de confiance illisible") },
+                        )
+                    reply.status == 404 || reply.status == 405 -> ApiResult.Ok(null)
+                    else -> ApiResult.Err(describeReply(reply), reply.status)
+                }
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun createSession(request: CreateSessionRequest): ApiResult<CreateSessionResult> {
+        val body = JSONObject()
+            .put("path", if (request.scratch) "" else request.path)
+            .put("tool", request.tool)
+            .put("view", if (request.structured) "structured" else "terminal")
+            .put("yolo_mode", request.yoloMode)
+            .put("worktree_enabled", request.worktreeEnabled)
+            .put("create_new_branch", request.createNewBranch)
+            .put("scratch", request.scratch)
+            .put("idempotency_key", request.idempotencyKey)
+        if (!request.title.isNullOrBlank()) body.put("title", request.title.trim())
+        if (request.structured && !request.agentModel.isNullOrBlank()) body.put("agent_model", request.agentModel)
+        if (request.structured && !request.agentEffort.isNullOrBlank()) body.put("agent_effort", request.agentEffort)
+        if (request.worktreeEnabled) {
+            if (!request.worktreeBranch.isNullOrBlank()) body.put("worktree_branch", request.worktreeBranch.trim())
+            if (request.createNewBranch && !request.baseBranch.isNullOrBlank()) {
+                body.put("base_branch", request.baseBranch.trim())
+            }
+        }
+        if (request.trustHooks != null) body.put("trust_hooks", request.trustHooks)
+        request.trustReview?.let { fingerprint ->
+            body.put(
+                "trust_review",
+                JSONObject()
+                    .put("project_path", fingerprint.projectPath)
+                    .put("base_hooks_hash", fingerprint.baseHooksHash)
+                    .put("hooks_hash", fingerprint.hooksHash ?: JSONObject.NULL)
+                    .put("mcp_hash", fingerprint.mcpHash ?: JSONObject.NULL),
+            )
+        }
+        return when (val result = client.postRaw("/api/sessions", body.toString())) {
+            is ApiResult.Ok -> {
+                val reply = result.value
+                when {
+                    reply.isSuccessful -> runCatching {
+                        CreateSessionResult(session = SessionMapper.parseSession(reply.body))
+                    }.fold(
+                        onSuccess = { ApiResult.Ok(it) },
+                        onFailure = { ApiResult.Err("Réponse de création illisible") },
+                    )
+                    reply.status == 409 && reply.errorCode == "creation_trust_changed" -> {
+                        ApiResult.Ok(CreateSessionResult(trustChanged = true, error = "Configuration des hooks modifiée"))
+                    }
+                    reply.status == 409 && extractErrorCode(reply.body) == "creation_trust_changed" -> {
+                        ApiResult.Ok(CreateSessionResult(trustChanged = true, error = "Configuration des hooks modifiée"))
+                    }
+                    reply.status == 409 && extractErrorCode(reply.body) == "hooks_need_trust" -> {
+                        val root = runCatching { JSONObject(reply.body) }.getOrNull()
+                        val review = root?.let { CreationMapper.parseTrustRequired(it) }
+                        ApiResult.Ok(
+                            CreateSessionResult(
+                                hooksRequired = review,
+                                error = root?.optString("message").orEmpty().ifBlank { null },
+                            ),
+                        )
+                    }
+                    reply.status == 409 && extractErrorCode(reply.body) == "create_outcome_unknown" -> {
+                        ApiResult.Err("Création peut-être en cours, résultat inconnu", reply.status)
+                    }
+                    else -> ApiResult.Err(describeReply(reply), reply.status)
+                }
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun createProgress(key: String): ApiResult<CreationProgress?> {
+        return when (val result = client.get("/api/sessions/create-progress/${encode(key)}")) {
+            is ApiResult.Ok -> runCatching { CreationMapper.parseProgress(result.value) }
+                .fold(
+                    onSuccess = { ApiResult.Ok(it) },
+                    onFailure = { ApiResult.Err("Progression illisible") },
+                )
+            is ApiResult.Err -> if (result.status == 404) ApiResult.Ok(null) else result
+        }
+    }
+
+    suspend fun rename(id: String, title: String): ApiResult<Unit> =
+        patchMutation(id, "/api/sessions/$id", JSONObject().put("title", title).toString())
+
+    suspend fun setArchived(id: String, archived: Boolean): ApiResult<Unit> =
+        patchMutation(
+            id,
+            "/api/sessions/$id/archive",
+            JSONObject().put("archived", archived).put("kill_pane", true).toString(),
+        )
+
+    suspend fun setSnoozed(id: String, minutes: Int?): ApiResult<Unit> {
+        val body = JSONObject().put("minutes", minutes ?: JSONObject.NULL).toString()
+        return patchMutation(id, "/api/sessions/$id/snooze", body)
+    }
+
+    suspend fun setColor(id: String, color: String?): ApiResult<Unit> {
+        val body = JSONObject().put("color", color ?: JSONObject.NULL).toString()
+        return patchMutation(id, "/api/sessions/$id/color", body)
+    }
+
+    suspend fun trash(id: String): ApiResult<Unit> =
+        postMutation(id, "/api/sessions/$id/trash", JSONObject().put("kill_pane", true).toString())
+
+    suspend fun restore(id: String): ApiResult<Unit> =
+        postMutation(id, "/api/sessions/$id/restore", null)
+
+    suspend fun reorderSession(id: String, sourceGroup: String, profile: String, up: Boolean): ApiResult<Unit> {
+        val body = JSONObject()
+            .put("target", "session")
+            .put("id", id)
+            .put("profile", profile)
+            .put("source_group", sourceGroup)
+            .put("direction", if (up) "up" else "down")
+            .put("destination", JSONObject.NULL)
+            .toString()
+        return when (val result = client.post("/api/reorder", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun setMode(sessionId: String, modeId: String): ApiResult<Unit> {
+        val body = JSONObject().put("mode_id", modeId).toString()
+        return when (val result = client.post("/api/sessions/$sessionId/acp/mode", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun switchAgent(sessionId: String, target: String): ApiResult<Unit> {
+        val body = JSONObject().put("target", target).put("reason", "manual").toString()
+        return when (val result = client.post("/api/sessions/$sessionId/acp/switch-agent", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
             is ApiResult.Err -> result
         }
     }
@@ -46,11 +253,12 @@ class SessionRepository(
         mutation(id, "/api/sessions/$id/unread", JSONObject().put("unread", unread).toString())
 
     suspend fun setMuted(id: String, muted: Boolean): ApiResult<Unit> {
-        val value: Any = if (muted) false else JSONObject.NULL
+        // Older daemons treated a null tri-state as false, so unmuting answers
+        // with an explicit true override instead of "inherit".
         val body = JSONObject()
-            .put("notify_on_waiting", value)
-            .put("notify_on_idle", value)
-            .put("notify_on_error", value)
+            .put("notify_on_waiting", !muted)
+            .put("notify_on_idle", !muted)
+            .put("notify_on_error", !muted)
             .toString()
         return mutation(id, "/api/sessions/$id/notifications", body)
     }
@@ -152,14 +360,46 @@ class SessionRepository(
             is ApiResult.Err -> result
         }
 
-    private suspend fun mutation(id: String, path: String, body: String): ApiResult<Unit> {
-        return when (val result = client.patch(path, body)) {
+    private suspend fun mutation(id: String, path: String, body: String): ApiResult<Unit> =
+        patchMutation(id, path, body)
+
+    private suspend fun patchMutation(id: String, path: String, body: String): ApiResult<Unit> =
+        when (val result = client.patch(path, body)) {
             is ApiResult.Ok -> {
                 runCatching { store.upsert(SessionMapper.parseSession(result.value)) }
                 ApiResult.Ok(Unit)
             }
             is ApiResult.Err -> result
         }
+
+    private suspend fun postMutation(id: String, path: String, body: String?): ApiResult<Unit> =
+        when (val result = client.post(path, body)) {
+            is ApiResult.Ok -> {
+                runCatching { store.upsert(SessionMapper.parseSession(result.value)) }
+                ApiResult.Ok(Unit)
+            }
+            is ApiResult.Err -> result
+        }
+
+    private fun extractErrorCode(body: String): String? =
+        runCatching { JSONObject(body).optString("error") }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    private fun describeReply(reply: HttpReply): String {
+        val code = extractErrorCode(reply.body)
+        val message = runCatching { JSONObject(reply.body).optString("message") }.getOrNull()
+            .orEmpty()
+            .ifBlank { code.orEmpty() }
+            .ifBlank { reply.body }
+        val base = when (reply.status) {
+            400 -> "Requête refusée"
+            401 -> "Jeton refusé"
+            403 -> "Action refusée"
+            404 -> "Introuvable"
+            409 -> "Conflit"
+            422 -> "Requête invalide"
+            else -> "Erreur HTTP ${reply.status}"
+        }
+        return if (message.isBlank()) base else "$base : ${message.take(180)}"
     }
 
     private fun encode(value: String): String =

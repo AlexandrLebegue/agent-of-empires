@@ -31,6 +31,8 @@ import androidx.navigation.navArgument
 import dev.proxboss.aoe.data.AppSettings
 import dev.proxboss.aoe.notify.NotificationHelper
 import dev.proxboss.aoe.notify.NotificationService
+import dev.proxboss.aoe.ui.create.CreateSessionScreen
+import dev.proxboss.aoe.ui.create.CreateSessionViewModel
 import dev.proxboss.aoe.ui.detail.SessionDetailScreen
 import dev.proxboss.aoe.ui.detail.SessionDetailViewModel
 import dev.proxboss.aoe.ui.diff.DiffScreen
@@ -143,6 +145,21 @@ private fun AoEApp(container: AppContainer, settings: AppSettings) {
                 viewModel = viewModel,
                 onOpenSession = { sessionId -> navController.navigate("session/$sessionId") },
                 onOpenSettings = { navController.navigate("settings") },
+                onCreateSession = { navController.navigate("create") },
+            )
+        }
+
+        composable("create") {
+            val viewModel: CreateSessionViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+            CreateSessionScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onCreated = { sessionId ->
+                    navController.navigate("session/$sessionId") {
+                        popUpTo("sessions") { inclusive = false }
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 

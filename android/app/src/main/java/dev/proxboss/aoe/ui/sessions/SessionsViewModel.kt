@@ -230,9 +230,11 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         val filtered = state.sessions
             .filter { session ->
                 when (state.filter) {
-                    SessionFilter.ACTIVE -> !session.isArchived
-                    SessionFilter.ALL -> true
-                    SessionFilter.ARCHIVED -> session.isArchived
+                    SessionFilter.ACTIVE -> !session.isArchived && !session.isTrashed
+                    SessionFilter.FAVORITES -> session.favorited && !session.isTrashed
+                    SessionFilter.ALL -> !session.isTrashed
+                    SessionFilter.ARCHIVED -> session.isArchived && !session.isTrashed
+                    SessionFilter.TRASHED -> session.isTrashed
                 }
             }
             .filter { session ->

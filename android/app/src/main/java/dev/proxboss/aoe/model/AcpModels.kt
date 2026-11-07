@@ -48,11 +48,19 @@ data class ConfigOption(
     val isEffort: Boolean get() = category == "thought_level" || id == "effort" || id == "reasoning_effort"
 }
 
+data class AcpMode(
+    val id: String,
+    val name: String,
+    val description: String = "",
+)
+
 data class AcpControl(
     val agent: String? = null,
     val model: String? = null,
     val mode: String? = null,
     val configOptions: List<ConfigOption> = emptyList(),
+    val availableModes: List<AcpMode> = emptyList(),
+    val currentModeId: String? = null,
     val pendingApprovals: List<Approval> = emptyList(),
     val pendingElicitationCount: Int = 0,
     val turnActive: Boolean = false,
@@ -61,7 +69,18 @@ data class AcpControl(
 ) {
     val modelOption: ConfigOption? get() = configOptions.firstOrNull { it.isModel }
     val effortOption: ConfigOption? get() = configOptions.firstOrNull { it.isEffort }
+    val modeOption: ConfigOption? get() = configOptions.firstOrNull { it.category == "mode" && it.choices.isNotEmpty() }
+    val modeChoices: List<ConfigOptionChoice>
+        get() = modeOption?.choices ?: availableModes.map { ConfigOptionChoice(it.id, it.name) }
+    val currentModeChoice: String?
+        get() = modeOption?.currentValue ?: currentModeId ?: mode
 }
+
+data class AcpAgent(
+    val name: String,
+    val description: String,
+    val command: String,
+)
 
 enum class TranscriptKind(val wire: String) {
     TOOL_START("tool_start"),

@@ -12,6 +12,14 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+data class HttpReply(
+    val status: Int,
+    val body: String,
+    val errorCode: String?,
+) {
+    val isSuccessful: Boolean get() = status in 200..299
+}
+
 sealed class ApiResult<out T> {
     data class Ok<T>(val value: T) : ApiResult<T>()
     data class Err(val message: String, val status: Int? = null) : ApiResult<Nothing>()
@@ -31,6 +39,10 @@ class AoeClient(
     @Volatile
     private var token: String = ""
 
+    /** Invoked on an authenticated 401 so the UI can return to the login screen. */
+    @Volatile
+    var onUnauthorized: (() -> Unit)? = null
+
     fun configure(baseUrl: String, token: String) {
         this.baseUrl = normalizeBaseUrl(baseUrl)
         this.token = token.trim()
@@ -43,6 +55,12 @@ class AoeClient(
 
     suspend fun patch(path: String, body: String): ApiResult<String> =
         request("PATCH", path, body)
+
+    suspend fun delete(path: String, body: String? = null): ApiResult<String> =
+        request("DELETE", path, body)
+
+    suspend fun postRaw(path: String, body: String? = null): ApiResult<HttpReply> =
+        rawRequest("POST", path, body)
 
     fun openStatusSocket(listener: WebSocketListener): WebSocket? = openSocket("/api/sessions/status/ws", listener)
 
@@ -67,6 +85,19 @@ class AoeClient(
     }
 
     private suspend fun request(method: String, path: String, body: String?): ApiResult<String> =
+        when (val result = rawRequest(method, path, body)) {
+            is ApiResult.Ok -> {
+                val reply = result.value
+                if (reply.isSuccessful) {
+                    ApiResult.Ok(reply.body)
+                } else {
+                    ApiResult.Err(describeError(reply.status, reply.body), reply.status)
+                }
+            }
+            is ApiResult.Err -> result
+        }
+
+    private suspend fun rawRequest(method: String, path: String, body: String?): ApiResult<HttpReply> =
         withContext(Dispatchers.IO) {
             val base = baseUrl
             if (base.isBlank()) {
@@ -84,16 +115,22 @@ class AoeClient(
             when (method) {
                 "POST" -> requestBuilder.post((body ?: "").toRequestBody(JSON_MEDIA))
                 "PATCH" -> requestBuilder.patch((body ?: "").toRequestBody(JSON_MEDIA))
+                "DELETE" -> requestBuilder.delete((body ?: "").toRequestBody(JSON_MEDIA))
                 else -> requestBuilder.get()
             }
             try {
                 http.newCall(requestBuilder.build()).execute().use { response ->
                     val text = response.body?.string().orEmpty()
-                    if (response.isSuccessful) {
-                        ApiResult.Ok(text)
-                    } else {
-                        ApiResult.Err(describeError(response.code, text), response.code)
+                    if (response.code == 401) {
+                        onUnauthorized?.invoke()
                     }
+                    ApiResult.Ok(
+                        HttpReply(
+                            status = response.code,
+                            body = text,
+                            errorCode = response.header("aoe-error-code"),
+                        ),
+                    )
                 }
             } catch (error: Exception) {
                 ApiResult.Err(friendlyNetworkError(error))
@@ -106,6 +143,7 @@ class AoeClient(
             401 -> "Jeton refusé (401)"
             403 -> "Accès refusé (403)"
             404 -> "Introuvable (404)"
+            405 -> "Action non supportée par ce serveur (405)"
             409 -> "Conflit (409)"
             422 -> "Requête invalide (422)"
             500, 502, 503, 504 -> "Serveur indisponible ($status)"

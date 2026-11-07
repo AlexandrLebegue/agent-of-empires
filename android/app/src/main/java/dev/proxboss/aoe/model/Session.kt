@@ -49,6 +49,9 @@ data class Session(
     val createdAt: Instant?,
     val lastError: String?,
     val branch: String?,
+    val color: String? = null,
+    val profile: String = "",
+    val parentSessionId: String? = null,
     val model: String? = null,
 ) {
     val isPinned: Boolean get() = pinnedAt != null
@@ -95,6 +98,8 @@ data class SearchHit(
 
 enum class SessionFilter(val labelFr: String) {
     ACTIVE("Actives"),
+    FAVORITES("Favoris"),
     ALL("Toutes"),
     ARCHIVED("Archivées"),
+    TRASHED("Corbeille"),
 }
