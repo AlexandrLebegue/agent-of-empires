@@ -5,6 +5,7 @@ import dev.proxboss.aoe.model.AgentInfo
 import dev.proxboss.aoe.model.BranchInfo
 import dev.proxboss.aoe.model.BrowseResult
 import dev.proxboss.aoe.model.ConfigOption
+import dev.proxboss.aoe.model.CreateSessionRequest
 import dev.proxboss.aoe.model.CreationFingerprint
 import dev.proxboss.aoe.model.CreationProgress
 import dev.proxboss.aoe.model.CreationTrustReview
@@ -216,6 +217,40 @@ object CreationMapper {
                 if (value.isNotBlank()) add(value)
             }
         }
+    }
+
+    fun createBody(request: CreateSessionRequest): String {
+        val body = JSONObject()
+            .put("path", if (request.scratch) "" else request.path)
+            .put("tool", request.tool)
+            .put("view", if (request.structured) "structured" else "terminal")
+            .put("yolo_mode", request.yoloMode)
+            .put("worktree_enabled", request.worktreeEnabled)
+            .put("create_new_branch", request.createNewBranch)
+            .put("scratch", request.scratch)
+            .put("idempotency_key", request.idempotencyKey)
+        if (!request.title.isNullOrBlank()) body.put("title", request.title.trim())
+        if (!request.group.isNullOrBlank()) body.put("group", request.group.trim())
+        if (request.structured && !request.agentModel.isNullOrBlank()) body.put("agent_model", request.agentModel)
+        if (request.structured && !request.agentEffort.isNullOrBlank()) body.put("agent_effort", request.agentEffort)
+        if (request.worktreeEnabled) {
+            if (!request.worktreeBranch.isNullOrBlank()) body.put("worktree_branch", request.worktreeBranch.trim())
+            if (request.createNewBranch && !request.baseBranch.isNullOrBlank()) {
+                body.put("base_branch", request.baseBranch.trim())
+            }
+        }
+        if (request.trustHooks != null) body.put("trust_hooks", request.trustHooks)
+        request.trustReview?.let { fingerprint ->
+            body.put(
+                "trust_review",
+                JSONObject()
+                    .put("project_path", fingerprint.projectPath)
+                    .put("base_hooks_hash", fingerprint.baseHooksHash)
+                    .put("hooks_hash", fingerprint.hooksHash ?: JSONObject.NULL)
+                    .put("mcp_hash", fingerprint.mcpHash ?: JSONObject.NULL),
+            )
+        }
+        return body.toString()
     }
 
     fun parseProgress(json: String): CreationProgress {

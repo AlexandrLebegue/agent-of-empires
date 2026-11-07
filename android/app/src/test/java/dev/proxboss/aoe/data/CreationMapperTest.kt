@@ -77,6 +77,48 @@ class CreationMapperTest {
     }
 
     @Test
+    fun `builds a create body with worktree model and trust review`() {
+        val body = org.json.JSONObject(
+            CreationMapper.createBody(
+                dev.proxboss.aoe.model.CreateSessionRequest(
+                    path = "/repo",
+                    tool = "opencode",
+                    title = " Feature ",
+                    group = "work/api",
+                    structured = true,
+                    agentModel = "m",
+                    agentEffort = "high",
+                    yoloMode = true,
+                    worktreeEnabled = true,
+                    worktreeBranch = "feat/x",
+                    createNewBranch = true,
+                    baseBranch = "main",
+                    scratch = false,
+                    trustHooks = true,
+                    trustReview = dev.proxboss.aoe.model.CreationFingerprint(
+                        projectPath = "/repo",
+                        baseHooksHash = "base",
+                        hooksHash = "hooks",
+                        mcpHash = null,
+                    ),
+                    idempotencyKey = "key",
+                ),
+            ),
+        )
+        assertEquals("/repo", body.getString("path"))
+        assertEquals("structured", body.getString("view"))
+        assertEquals("Feature", body.getString("title"))
+        assertEquals("work/api", body.getString("group"))
+        assertEquals("m", body.getString("agent_model"))
+        assertEquals("high", body.getString("agent_effort"))
+        assertEquals("feat/x", body.getString("worktree_branch"))
+        assertEquals("main", body.getString("base_branch"))
+        assertEquals(true, body.getBoolean("trust_hooks"))
+        assertEquals("hooks", body.getJSONObject("trust_review").getString("hooks_hash"))
+        assertEquals("key", body.getString("idempotency_key"))
+    }
+
+    @Test
     fun `parses progress and option catalog`() {
         val progress = CreationMapper.parseProgress(
             """{"stage":"running_hooks","hook":"npm ci","output":["one","two"]}""",
