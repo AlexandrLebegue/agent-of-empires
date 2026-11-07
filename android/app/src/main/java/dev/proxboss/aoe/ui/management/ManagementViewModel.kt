@@ -49,9 +49,11 @@ data class ManagementUiState(
     val pluginsError: String? = null,
     val pluginUpdates: List<PluginUpdateInfo> = emptyList(),
     val profiles: List<ProfileInfo> = emptyList(),
+    val profilesLoaded: Boolean = false,
     val profilesError: String? = null,
     val devices: List<DeviceInfo> = emptyList(),
     val passkeys: List<PasskeyInfo> = emptyList(),
+    val securityLoaded: Boolean = false,
     val securityError: String? = null,
     val busy: Boolean = false,
     val message: String? = null,
@@ -221,8 +223,15 @@ class ManagementViewModel(application: Application) : AndroidViewModel(applicati
     fun loadProfiles() {
         viewModelScope.launch {
             when (val result = repository.fetchProfiles()) {
-                is ApiResult.Ok -> _ui.value = _ui.value.copy(profiles = result.value, profilesError = null)
-                is ApiResult.Err -> _ui.value = _ui.value.copy(profilesError = result.message)
+                is ApiResult.Ok -> _ui.value = _ui.value.copy(
+                    profiles = result.value,
+                    profilesLoaded = true,
+                    profilesError = null,
+                )
+                is ApiResult.Err -> _ui.value = _ui.value.copy(
+                    profilesLoaded = true,
+                    profilesError = result.message,
+                )
             }
         }
     }
@@ -258,6 +267,7 @@ class ManagementViewModel(application: Application) : AndroidViewModel(applicati
             _ui.value = _ui.value.copy(
                 devices = (devices as? ApiResult.Ok)?.value.orEmpty(),
                 passkeys = (passkeys as? ApiResult.Ok)?.value.orEmpty(),
+                securityLoaded = true,
                 securityError = when {
                     devices is ApiResult.Err -> devices.message
                     passkeys is ApiResult.Err -> passkeys.message

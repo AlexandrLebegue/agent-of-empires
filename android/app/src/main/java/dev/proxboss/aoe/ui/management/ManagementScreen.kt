@@ -619,7 +619,7 @@ private fun ProfilesTab(
                 Button(onClick = onCreate) { Text("Créer") }
             }
         }
-        if (ui.profiles.isEmpty() && ui.profilesError == null) {
+        if (!ui.profilesLoaded && ui.profilesError == null) {
             item { LoadingRow() }
         }
         ui.profilesError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
@@ -655,7 +655,7 @@ private fun SecurityTab(
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (ui.devices.isEmpty() && ui.passkeys.isEmpty() && ui.securityError == null) {
+        if (!ui.securityLoaded && ui.securityError == null) {
             item { LoadingRow() }
         }
         ui.securityError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
