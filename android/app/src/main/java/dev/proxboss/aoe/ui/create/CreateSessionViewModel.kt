@@ -420,6 +420,7 @@ class CreateSessionViewModel(application: Application) : AndroidViewModel(applic
             path = if (state.scratch) "" else state.path.trim(),
             tool = agent,
             title = state.title.trim().ifBlank { null },
+            group = state.group.trim().ifBlank { null },
             structured = state.structured && state.selectedAgentInfo?.canRunStructured == true,
             agentModel = state.model,
             agentEffort = state.effort,

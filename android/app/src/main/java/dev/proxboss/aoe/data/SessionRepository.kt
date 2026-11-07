@@ -115,6 +115,7 @@ class SessionRepository(
             .put("scratch", request.scratch)
             .put("idempotency_key", request.idempotencyKey)
         if (!request.title.isNullOrBlank()) body.put("title", request.title.trim())
+        if (!request.group.isNullOrBlank()) body.put("group", request.group.trim())
         if (request.structured && !request.agentModel.isNullOrBlank()) body.put("agent_model", request.agentModel)
         if (request.structured && !request.agentEffort.isNullOrBlank()) body.put("agent_effort", request.agentEffort)
         if (request.worktreeEnabled) {

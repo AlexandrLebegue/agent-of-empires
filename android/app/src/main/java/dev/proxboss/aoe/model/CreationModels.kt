@@ -90,6 +90,7 @@ data class CreateSessionRequest(
     val path: String,
     val tool: String,
     val title: String?,
+    val group: String?,
     val structured: Boolean,
     val agentModel: String?,
     val agentEffort: String?,
