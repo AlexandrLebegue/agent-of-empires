@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -296,6 +297,8 @@ fun SessionDetailScreen(
             ui = ui,
             onDismiss = { showSettings = false },
             onSetOption = viewModel::setConfigOption,
+            onSetMode = viewModel::setMode,
+            onSwitchAgent = viewModel::switchAgent,
             onToggleMuted = viewModel::toggleMuted,
             onOpenDiff = { ui.session?.let { onOpenDiff(it.id) } },
             onRetry = viewModel::retryConnection,
@@ -323,6 +326,13 @@ private fun SessionHeader(ui: SessionDetailUiState) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
+        ui.control.currentModeChoice?.takeIf { it.isNotBlank() }?.let { mode ->
+            Text(
+                mode,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
         if (ui.control.cancelling) {
             Text("annulation…", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF0A43A))
         }
@@ -864,6 +874,8 @@ private fun ConfigSheet(
     ui: SessionDetailUiState,
     onDismiss: () -> Unit,
     onSetOption: (String, String) -> Unit,
+    onSetMode: (String) -> Unit,
+    onSwitchAgent: (String) -> Unit,
     onToggleMuted: () -> Unit,
     onOpenDiff: () -> Unit,
     onRetry: () -> Unit,
@@ -871,6 +883,7 @@ private fun ConfigSheet(
     val muted = ui.session?.let {
         it.notifyOnWaiting == false && it.notifyOnIdle == false && it.notifyOnError == false
     } ?: false
+    var showAgentSwitch by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -890,10 +903,43 @@ private fun ConfigSheet(
             }
             Spacer(Modifier.height(16.dp))
             if (ui.transport == DetailTransport.ACP) {
+                if (ui.control.modeChoices.isNotEmpty()) {
+                    ModePickerRow(
+                        current = ui.control.currentModeChoice,
+                        choices = ui.control.modeChoices,
+                        enabled = ui.configAction == null,
+                        onSelect = onSetMode,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
                 ConfigPicker("Modèle", ui.control.modelOption, ui.control, onSetOption)
                 Spacer(Modifier.height(10.dp))
                 ConfigPicker("Effort", ui.control.effortOption, ui.control, onSetOption)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Agent ACP", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            ui.control.agent ?: ui.session?.displayAgent ?: "Inconnu",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (ui.switchingAgent != null) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        OutlinedButton(
+                            onClick = { showAgentSwitch = true },
+                            enabled = ui.acpAgents.size > 1 && ui.sessionAction == null,
+                        ) { Text("Changer") }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
             }
             Row(
                 modifier = Modifier
@@ -921,6 +967,95 @@ private fun ConfigSheet(
                 Text("Reconnecter le flux")
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (showAgentSwitch) {
+        AlertDialog(
+            onDismissRequest = { showAgentSwitch = false },
+            title = { Text("Changer d'agent ACP") },
+            text = {
+                Column(
+                    Modifier
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    ui.acpAgents
+                        .filter { it.name != ui.control.agent }
+                        .forEach { agent ->
+                            TextButton(
+                                onClick = {
+                                    showAgentSwitch = false
+                                    onSwitchAgent(agent.name)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(agent.name)
+                                    if (agent.description.isNotBlank()) {
+                                        Text(
+                                            agent.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showAgentSwitch = false }) { Text("Annuler") } },
+        )
+    }
+}
+
+@Composable
+private fun ModePickerRow(
+    current: String?,
+    choices: List<dev.proxboss.aoe.model.ConfigOptionChoice>,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val currentName = choices.firstOrNull { it.value == current }?.name ?: current ?: "Mode"
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                horizontalAlignment = Alignment.Start,
+            ) {
+                Text("Mode", style = MaterialTheme.typography.labelSmall)
+                Text(currentName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 360.dp),
+        ) {
+            choices.forEach { choice ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            choice.name,
+                            fontWeight = if (choice.value == current) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(choice.value)
+                    },
+                )
+            }
         }
     }
 }

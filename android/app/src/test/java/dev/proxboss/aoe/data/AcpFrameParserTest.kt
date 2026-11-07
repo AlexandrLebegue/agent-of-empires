@@ -73,6 +73,31 @@ class AcpFrameParserTest {
     }
 
     @Test
+    fun `parses ACP modes and prefers a mode config option`() {
+        val payload = """
+            {"kind":"reduced_state","state":{"agent":"a","model":null,"mode":"Plan",
+             "available_modes":[{"id":"build","name":"Build"},{"id":"plan","name":"Plan"}],
+             "current_mode_id":"plan","pending_approvals":[],"pending_elicitations":[]}}
+        """.trimIndent()
+        val control = (AcpFrameParser.parse(payload) as AcpFrame.ReducedState).payload.mergeInto(AcpControl())
+        assertEquals(listOf("build", "plan"), control.modeChoices.map { it.value })
+        assertEquals("plan", control.currentModeChoice)
+
+        val withConfig = """
+            {"kind":"reduced_state","state":{"agent":"a","model":null,
+             "config_options":[{"id":"mode","name":"Mode","category":"mode","current_value":"plan",
+               "options":[{"value":"default","name":"Default"},{"value":"plan","name":"Plan"}]}],
+             "pending_approvals":[],"pending_elicitations":[]}}
+        """.trimIndent()
+        val configured = (AcpFrameParser.parse(withConfig) as AcpFrame.ReducedState)
+            .payload
+            .mergeInto(AcpControl())
+        assertEquals("mode", configured.modeOption?.id)
+        assertEquals("plan", configured.currentModeChoice)
+        assertEquals(2, configured.modeChoices.size)
+    }
+
+    @Test
     fun `omitted cold config options stay from the previous control state`() {
         val withOptions = """
             {"kind":"reduced_state","state":{"agent":"a","model":"m","config_options":[

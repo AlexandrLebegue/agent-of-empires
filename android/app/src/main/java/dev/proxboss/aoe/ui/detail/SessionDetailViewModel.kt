@@ -9,6 +9,7 @@ import dev.proxboss.aoe.AoEApplication
 import dev.proxboss.aoe.data.AcpFrame
 import dev.proxboss.aoe.data.AcpFrameParser
 import dev.proxboss.aoe.data.TranscriptBuilder
+import dev.proxboss.aoe.model.AcpAgent
 import dev.proxboss.aoe.model.AcpControl
 import dev.proxboss.aoe.model.Approval
 import dev.proxboss.aoe.model.DisplayItem
@@ -51,6 +52,9 @@ data class SessionDetailUiState(
     val approvalAction: String? = null,
     val configAction: String? = null,
     val sessionAction: String? = null,
+    val acpAgents: List<AcpAgent> = emptyList(),
+    val acpAgentsLoading: Boolean = false,
+    val switchingAgent: String? = null,
 )
 
 class SessionDetailViewModel(
@@ -96,6 +100,7 @@ class SessionDetailViewModel(
             }
         }
         startPeriodicRefresh()
+        loadAcpAgents()
     }
 
     fun retryConnection() {
@@ -180,6 +185,72 @@ class SessionDetailViewModel(
                 }
                 is ApiResult.Err -> {
                     _ui.value = _ui.value.copy(approvalAction = null, error = result.message)
+                }
+            }
+        }
+    }
+
+    fun setMode(value: String) {
+        val control = _ui.value.control
+        val modeOption = control.modeOption
+        if (_ui.value.configAction != null) return
+        val key = "mode=$value"
+        _ui.value = _ui.value.copy(configAction = key, error = null)
+        viewModelScope.launch {
+            val result = if (modeOption != null) {
+                repository.setConfigOption(sessionId, modeOption.id, value)
+            } else {
+                repository.setMode(sessionId, value)
+            }
+            when (result) {
+                is ApiResult.Ok -> {
+                    val updated = _ui.value.control
+                    _ui.value = _ui.value.copy(
+                        control = updated.copy(
+                            currentModeId = value,
+                            configOptions = updated.configOptions.map { option ->
+                                if (option.id == modeOption?.id) option.copy(currentValue = value) else option
+                            },
+                        ),
+                        configAction = null,
+                    )
+                }
+                is ApiResult.Err -> _ui.value = _ui.value.copy(configAction = null, error = result.message)
+            }
+        }
+    }
+
+    fun loadAcpAgents() {
+        if (_ui.value.acpAgentsLoading) return
+        _ui.value = _ui.value.copy(acpAgentsLoading = true)
+        viewModelScope.launch {
+            when (val result = repository.fetchAcpAgents()) {
+                is ApiResult.Ok -> _ui.value = _ui.value.copy(acpAgents = result.value, acpAgentsLoading = false)
+                is ApiResult.Err -> _ui.value = _ui.value.copy(acpAgentsLoading = false)
+            }
+        }
+    }
+
+    fun switchAgent(target: String) {
+        if (_ui.value.switchingAgent != null) return
+        _ui.value = _ui.value.copy(switchingAgent = target, error = null)
+        intentionallyClosed = true
+        socket?.close(1000, "agent switch")
+        socket = null
+        _ui.value = _ui.value.copy(connected = false)
+        viewModelScope.launch {
+            when (val result = repository.switchAgent(sessionId, target)) {
+                is ApiResult.Ok -> {
+                    _ui.value = _ui.value.copy(
+                        switchingAgent = null,
+                        notice = "Agent changé vers $target.",
+                    )
+                    reconnectSoon(1_200)
+                    refreshSession()
+                }
+                is ApiResult.Err -> {
+                    _ui.value = _ui.value.copy(switchingAgent = null, error = result.message)
+                    reconnectSoon(1_500)
                 }
             }
         }
