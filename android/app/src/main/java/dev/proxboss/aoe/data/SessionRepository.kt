@@ -422,6 +422,17 @@ class SessionRepository(
         return client.get("/api/sessions/$sessionId/diff/file$query").map { DiffMapper.parseFile(it) }
     }
 
+    suspend fun setDiffBase(sessionId: String, baseBranch: String?, repoName: String?): ApiResult<Unit> {
+        val body = JSONObject().put("base_branch", baseBranch ?: JSONObject.NULL)
+        if (!repoName.isNullOrBlank()) body.put("repo", repoName)
+        return patchMutation(sessionId, "/api/sessions/$sessionId/diff-base", body.toString())
+    }
+
+    suspend fun sessionFile(sessionId: String, path: String): ApiResult<SessionFileContent> {
+        val query = "?path=" + encode(path)
+        return client.get("/api/sessions/$sessionId/file$query").map { DiffMapper.parseSessionFile(it) }
+    }
+
     suspend fun recordModel(sessionId: String, model: String) {
         if (model.isBlank()) return
         store.setModel(sessionId, model)
