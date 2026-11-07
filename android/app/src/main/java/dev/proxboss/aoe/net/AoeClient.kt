@@ -25,7 +25,8 @@ sealed class ApiResult<out T> {
     data class Err(val message: String, val status: Int? = null) : ApiResult<Nothing>()
 
     fun <R> map(transform: (T) -> R): ApiResult<R> = when (this) {
-        is Ok -> Ok(transform(value))
+        is Ok -> runCatching { Ok(transform(value)) }
+            .getOrElse { Err("Réponse du serveur illisible") }
         is Err -> this
     }
 }
