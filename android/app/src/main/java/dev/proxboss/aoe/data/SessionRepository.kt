@@ -45,6 +45,149 @@ class SessionRepository(
     }
 
 
+
+    suspend fun fetchMcpServers(agent: String? = null): ApiResult<dev.proxboss.aoe.model.McpServersView> {
+        val query = if (agent.isNullOrBlank()) "" else "?agent=" + encode(agent)
+        return client.get("/api/mcp/servers$query").map { ManagementMapper.parseMcpServers(it) }
+    }
+
+    suspend fun createMcpServer(name: String, input: dev.proxboss.aoe.model.McpServerInput): ApiResult<Unit> =
+        simplePostBody("/api/mcp/servers", ManagementMapper.mcpCreateBody(name, input))
+
+    suspend fun updateMcpServer(name: String, input: dev.proxboss.aoe.model.McpServerInput): ApiResult<Unit> {
+        val body = ManagementMapper.mcpUpdateBody(input)
+        return when (val result = client.put("/api/mcp/servers/${encode(name)}", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun deleteMcpServer(name: String): ApiResult<Unit> =
+        when (val result = client.delete("/api/mcp/servers/${encode(name)}")) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
+    suspend fun resolveMcpConflict(name: String, agent: String, winner: String, fingerprint: String): ApiResult<Unit> {
+        val body = JSONObject().put("agent", agent).put("winner", winner).put("fingerprint", fingerprint).toString()
+        return simplePostBody("/api/mcp/servers/${encode(name)}/resolve", body)
+    }
+
+    suspend fun keepMcpServer(name: String, agent: String): ApiResult<Unit> =
+        simplePostBody("/api/mcp/servers/${encode(name)}/keep", JSONObject().put("agent", agent).toString())
+
+    suspend fun dropMcpServer(name: String, agent: String): ApiResult<Unit> =
+        simplePostBody("/api/mcp/servers/${encode(name)}/drop", JSONObject().put("agent", agent).toString())
+
+    suspend fun fetchSkills(): ApiResult<dev.proxboss.aoe.model.SkillsView> =
+        client.get("/api/skills").map { ManagementMapper.parseSkills(it) }
+
+    suspend fun fetchSkillDetail(source: String, directory: String): ApiResult<dev.proxboss.aoe.model.SkillDetail> =
+        client.get("/api/skills/${encode(source)}/${encode(directory)}")
+            .map { ManagementMapper.parseSkillDetail(it) }
+
+    suspend fun createSkill(directory: String, description: String?): ApiResult<Unit> {
+        val body = JSONObject().put("directory", directory)
+        if (!description.isNullOrBlank()) body.put("description", description)
+        return simplePostBody("/api/skills", body.toString())
+    }
+
+    suspend fun updateSkill(directory: String, content: String): ApiResult<Unit> {
+        val body = JSONObject().put("content", content).toString()
+        return when (val result = client.put("/api/skills/${encode(directory)}", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun deleteSkill(directory: String): ApiResult<Unit> =
+        when (val result = client.delete("/api/skills/${encode(directory)}")) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
+    suspend fun adoptSkill(source: String, directory: String, destination: String?): ApiResult<Unit> {
+        val body = JSONObject()
+        if (!destination.isNullOrBlank()) body.put("destination", destination)
+        return simplePostBody("/api/skills/${encode(source)}/${encode(directory)}/adopt", body.toString())
+    }
+
+    suspend fun fetchPlugins(): ApiResult<dev.proxboss.aoe.model.PluginList> =
+        client.get("/api/plugins").map { ManagementMapper.parsePlugins(it) }
+
+    suspend fun fetchPluginUpdates(): ApiResult<List<dev.proxboss.aoe.model.PluginUpdateInfo>> =
+        client.get("/api/plugins/updates").map { ManagementMapper.parsePluginUpdates(it) }
+
+    suspend fun setPluginEnabled(id: String, enabled: Boolean): ApiResult<Unit> =
+        simplePostBody(
+            "/api/plugins/${encode(id)}/enabled",
+            ManagementMapper.pluginToggleBody(enabled),
+        )
+
+    suspend fun fetchProfiles(): ApiResult<List<dev.proxboss.aoe.model.ProfileInfo>> =
+        client.get("/api/profiles").map { ManagementMapper.parseProfiles(it) }
+
+    suspend fun createProfile(name: String): ApiResult<Unit> =
+        simplePostBody("/api/profiles", JSONObject().put("name", name).toString())
+
+    suspend fun renameProfile(name: String, newName: String): ApiResult<Unit> {
+        val body = JSONObject().put("new_name", newName).toString()
+        return when (val result = client.patch("/api/profiles/${encode(name)}/rename", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun setDefaultProfile(name: String): ApiResult<Unit> {
+        val body = JSONObject().put("name", name).toString()
+        return when (val result = client.patch("/api/default-profile", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun deleteProfile(name: String): ApiResult<Unit> =
+        when (val result = client.delete("/api/profiles/${encode(name)}")) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
+    suspend fun fetchDevices(): ApiResult<List<dev.proxboss.aoe.model.DeviceInfo>> =
+        client.get("/api/devices").map { ManagementMapper.parseDevices(it) }
+
+    suspend fun revokeDevice(sessionId: String): ApiResult<Unit> =
+        when (val result = client.delete("/api/login/sessions/${encode(sessionId)}")) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
+    suspend fun fetchPasskeys(): ApiResult<List<dev.proxboss.aoe.model.PasskeyInfo>> =
+        client.get("/api/passkeys").map { ManagementMapper.parsePasskeys(it) }
+
+    suspend fun deletePasskey(credentialId: String): ApiResult<Unit> =
+        when (val result = client.delete("/api/passkeys/${encode(credentialId)}")) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
+    suspend fun fetchHealth(): ApiResult<dev.proxboss.aoe.model.SystemHealth> =
+        client.get("/api/system/health").map { ManagementMapper.parseHealth(it) }
+
+    suspend fun fetchLogs(lines: Int = 300): ApiResult<dev.proxboss.aoe.model.LogsSnapshot> =
+        client.get("/api/system/logs?lines=$lines").map { ManagementMapper.parseLogs(it) }
+
+    suspend fun fetchUpdateStatus(): ApiResult<dev.proxboss.aoe.model.UpdateStatusInfo> =
+        client.get("/api/system/update-status").map { ManagementMapper.parseUpdateStatus(it) }
+
+    suspend fun fetchAbout(): ApiResult<dev.proxboss.aoe.model.AboutInfo> =
+        client.get("/api/about").map { SessionMapper.parseAbout(it) }
+
+    private suspend fun simplePostBody(path: String, body: String): ApiResult<Unit> =
+        when (val result = client.post(path, body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
     suspend fun fetchGroups(): ApiResult<List<GroupInfo>> =
         client.get("/api/groups").map { CreationMapper.parseGroups(it) }
 

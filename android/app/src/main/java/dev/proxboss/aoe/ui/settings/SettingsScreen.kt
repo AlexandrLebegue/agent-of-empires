@@ -55,6 +55,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
     onLoggedOut: () -> Unit,
+    onOpenManagement: () -> Unit,
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val baseUrl by viewModel.baseUrl.collectAsStateWithLifecycle()
@@ -183,6 +184,17 @@ fun SettingsScreen(
                     ) { Text("Ouvrir les réglages Android") }
                 }
                 Spacer(Modifier.height(20.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+            }
+
+            item {
+                SectionTitle("Serveur")
+                OutlinedButton(
+                    onClick = onOpenManagement,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Gestion du serveur (MCP, skills, plugins, profils, sécurité)") }
+                Spacer(Modifier.height(16.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
             }

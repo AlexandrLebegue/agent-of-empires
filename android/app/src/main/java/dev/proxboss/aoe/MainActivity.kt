@@ -38,6 +38,8 @@ import dev.proxboss.aoe.ui.detail.SessionDetailScreen
 import dev.proxboss.aoe.ui.detail.SessionDetailViewModel
 import dev.proxboss.aoe.ui.diff.DiffScreen
 import dev.proxboss.aoe.ui.diff.DiffViewModel
+import dev.proxboss.aoe.ui.management.ManagementScreen
+import dev.proxboss.aoe.ui.management.ManagementViewModel
 import dev.proxboss.aoe.ui.sessions.SessionsScreen
 import dev.proxboss.aoe.ui.sessions.SessionsViewModel
 import dev.proxboss.aoe.ui.settings.SettingsScreen
@@ -188,6 +190,15 @@ private fun AoEApp(container: AppContainer, settings: AppSettings) {
                         launchSingleTop = true
                     }
                 },
+                onOpenManagement = { navController.navigate("management") },
+            )
+        }
+
+        composable("management") {
+            val viewModel: ManagementViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+            ManagementScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
             )
         }
 
