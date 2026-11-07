@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dev.proxboss.aoe.AoEApplication
 import dev.proxboss.aoe.data.StatusFrame
 import dev.proxboss.aoe.data.StatusFrameParser
+import dev.proxboss.aoe.model.GroupInfo
 import dev.proxboss.aoe.model.SearchHit
 import dev.proxboss.aoe.model.Session
 import dev.proxboss.aoe.model.SessionFilter
@@ -24,10 +25,16 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 
+enum class SessionSortMode(val labelFr: String) {
+    ACTIVITY("Activité"),
+    MANUAL("Ordre manuel"),
+}
+
 data class SessionGroupUi(
     val path: String,
     val label: String,
     val sessions: List<Session>,
+    val collapsed: Boolean = false,
 )
 
 data class SessionsUiState(
@@ -43,6 +50,12 @@ data class SessionsUiState(
     val offline: Boolean = false,
     val live: Boolean = false,
     val message: String? = null,
+    val groupsInfo: List<GroupInfo> = emptyList(),
+    val collapsedGroups: Set<String> = emptySet(),
+    val sortMode: SessionSortMode = SessionSortMode.ACTIVITY,
+    val activeCount: Int = 0,
+    val waitingCount: Int = 0,
+    val unreadCount: Int = 0,
 )
 
 class SessionsViewModel(application: Application) : AndroidViewModel(application) {
@@ -65,6 +78,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
             }
         }
         viewModelScope.launch { refresh(showSpinner = true) }
+        loadGroups()
         startStatusLoop()
         startPolling()
     }
@@ -84,6 +98,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
                         offline = false,
                         error = null,
                     )
+                    loadGroups()
                 }
                 is ApiResult.Err -> {
                     _ui.value = _ui.value.copy(
@@ -99,6 +114,59 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
 
     fun setFilter(filter: SessionFilter) {
         _ui.value = recompute(_ui.value.copy(filter = filter))
+    }
+
+    fun toggleGroup(path: String) {
+        val collapsed = _ui.value.collapsedGroups
+        val next = if (path in collapsed) collapsed - path else collapsed + path
+        _ui.value = recompute(_ui.value.copy(collapsedGroups = next))
+    }
+
+    fun toggleSortMode() {
+        val next = if (_ui.value.sortMode == SessionSortMode.ACTIVITY) {
+            SessionSortMode.MANUAL
+        } else {
+            SessionSortMode.ACTIVITY
+        }
+        _ui.value = recompute(
+            _ui.value.copy(
+                sortMode = next,
+                message = "Tri : ${next.labelFr}",
+            ),
+        )
+    }
+
+    fun reorder(session: Session, up: Boolean) {
+        val nextMode = SessionSortMode.MANUAL
+        _ui.value = recompute(_ui.value.copy(sortMode = nextMode))
+        viewModelScope.launch {
+            when (
+                val result = repository.reorderSession(
+                    session.id,
+                    session.groupPath,
+                    session.profile.ifBlank { "main" },
+                    up,
+                )
+            ) {
+                is ApiResult.Ok -> {
+                    _ui.value = _ui.value.copy(message = "Ordre mis à jour")
+                    delay(300)
+                    refresh()
+                }
+                is ApiResult.Err -> _ui.value = _ui.value.copy(message = result.message)
+            }
+        }
+    }
+
+    private fun loadGroups() {
+        viewModelScope.launch {
+            when (val result = repository.fetchGroups()) {
+                is ApiResult.Ok -> {
+                    _ui.value = recompute(_ui.value.copy(groupsInfo = result.value))
+                }
+                is ApiResult.Err -> Unit
+            }
+        }
     }
 
     fun setQuery(query: String) {
@@ -357,25 +425,63 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
                     session.projectPath.contains(query, ignoreCase = true) ||
                     session.groupPath.contains(query, ignoreCase = true)
             }
-        val groups = filtered
-            .groupBy { it.groupPath }
-            .entries
-            .sortedWith(compareByDescending<Map.Entry<String, List<Session>>> { it.key.isEmpty() }.thenBy { it.key })
+
+        val byGroup = filtered.groupBy { it.groupPath }.toMutableMap()
+        val showEmptyGroups = query.isEmpty() &&
+            (state.filter == SessionFilter.ACTIVE || state.filter == SessionFilter.ALL)
+        if (showEmptyGroups) {
+            state.groupsInfo.forEach { info ->
+                if (info.path !in byGroup) byGroup[info.path] = emptyList()
+            }
+        }
+        if (byGroup.isEmpty() && filtered.isNotEmpty()) {
+            byGroup[""] = filtered
+        }
+
+        val groupOrder = state.groupsInfo.mapIndexed { index, info -> info.path to index }.toMap()
+        val position = state.sessions.mapIndexed { index, session -> session.id to index }.toMap()
+        val groups = byGroup.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, List<Session>>> { it.key.isEmpty() }
+                    .thenBy { groupOrder[it.key] ?: Int.MAX_VALUE }
+                    .thenBy { it.key },
+            )
             .map { (path, sessions) ->
-                SessionGroupUi(
-                    path = path,
-                    label = if (path.isBlank()) "Sans groupe" else path,
-                    sessions = sessions.sortedWith(
+                val ordered = if (state.sortMode == SessionSortMode.MANUAL) {
+                    sessions.sortedWith(
+                        compareByDescending<Session> { it.isPinned }
+                            .thenBy { position[it.id] ?: Int.MAX_VALUE },
+                    )
+                } else {
+                    sessions.sortedWith(
                         compareByDescending<Session> { it.isPinned }
                             .thenByDescending { it.favorited }
                             .thenByDescending { it.activityAt?.toEpochMilli() ?: 0L }
                             .thenBy { it.title.lowercase() },
-                    ),
+                    )
+                }
+                SessionGroupUi(
+                    path = path,
+                    label = if (path.isBlank()) "Sans groupe" else path,
+                    sessions = ordered,
+                    collapsed = path in state.collapsedGroups,
                 )
             }
+
+        val visible = state.sessions.filterNot { it.isTrashed }
         return state.copy(
             groups = groups,
             titles = state.sessions.associate { it.id to it.title },
+            activeCount = visible.count {
+                !it.isArchived && (it.status == dev.proxboss.aoe.model.SessionStatus.RUNNING ||
+                    it.status == dev.proxboss.aoe.model.SessionStatus.WAITING ||
+                    it.status == dev.proxboss.aoe.model.SessionStatus.STARTING ||
+                    it.status == dev.proxboss.aoe.model.SessionStatus.CREATING)
+            },
+            waitingCount = visible.count {
+                !it.isArchived && it.status == dev.proxboss.aoe.model.SessionStatus.WAITING
+            },
+            unreadCount = visible.count { it.unread },
         )
     }
 

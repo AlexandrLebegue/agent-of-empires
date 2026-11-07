@@ -28,12 +28,15 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -133,6 +136,12 @@ fun SessionsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = viewModel::toggleSortMode) {
+                        Icon(
+                            Icons.Default.Sort,
+                            contentDescription = "Tri : ${ui.sortMode.labelFr}",
+                        )
+                    }
                     IconButton(onClick = { viewModel.refresh(showSpinner = true) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir")
                     }
@@ -182,6 +191,24 @@ fun SessionsScreen(
                         label = { Text(filter.labelFr) },
                     )
                 }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CountBadge("${ui.activeCount} actives", MaterialTheme.colorScheme.primary)
+                CountBadge("${ui.waitingCount} en attente", Color(0xFFF0A43A))
+                CountBadge("${ui.unreadCount} non lues", MaterialTheme.colorScheme.tertiary)
+                Text(
+                    "Tri : ${ui.sortMode.labelFr}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
             }
 
             if (ui.offline) {
@@ -263,9 +290,10 @@ fun SessionsScreen(
 
                     ui.groups.forEach { group ->
                         item(key = "group-${group.path}") {
-                            GroupHeader(group)
+                            GroupHeader(group, onClick = { viewModel.toggleGroup(group.path) })
                         }
-                        items(group.sessions, key = { it.id }) { session ->
+                        if (!group.collapsed) {
+                            items(group.sessions, key = { it.id }) { session ->
                             SwipeableSessionRow(
                                 session = session,
                                 actions = SessionRowActions(
@@ -286,8 +314,11 @@ fun SessionsScreen(
                                     onStop = { viewModel.stop(session) },
                                     onStart = { viewModel.start(session) },
                                     onRestart = { viewModel.restart(session) },
+                                    onMoveUp = { viewModel.reorder(session, up = true) },
+                                    onMoveDown = { viewModel.reorder(session, up = false) },
                                 ),
                             )
+                            }
                         }
                     }
                     item { Spacer(Modifier.height(28.dp)) }
@@ -327,6 +358,21 @@ fun SessionsScreen(
 }
 
 @Composable
+private fun CountBadge(label: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = 0.15f),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(99.dp),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
+    }
+}
+
+@Composable
 private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.errorContainer,
@@ -360,13 +406,21 @@ private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun GroupHeader(group: SessionGroupUi) {
+private fun GroupHeader(group: SessionGroupUi, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            if (group.collapsed) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+            contentDescription = if (group.collapsed) "Déplier" else "Replier",
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(2.dp))
         Icon(
             Icons.Default.Folder,
             contentDescription = null,
@@ -441,6 +495,8 @@ private class SessionRowActions(
     val onStop: () -> Unit,
     val onStart: () -> Unit,
     val onRestart: () -> Unit,
+    val onMoveUp: () -> Unit,
+    val onMoveDown: () -> Unit,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -663,6 +719,20 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                                 onClick = {
                                     menuOpen = false
                                     actions.onRestart()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Monter") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onMoveUp()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Descendre") },
+                                onClick = {
+                                    menuOpen = false
+                                    actions.onMoveDown()
                                 },
                             )
                             DropdownMenuItem(
