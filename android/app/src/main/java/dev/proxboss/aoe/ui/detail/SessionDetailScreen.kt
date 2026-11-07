@@ -108,6 +108,7 @@ fun SessionDetailScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
+    var showSwitchView by remember { mutableStateOf(false) }
     var composer by rememberSaveable { mutableStateOf("") }
     var queueEditTarget by remember { mutableStateOf<QueuedPrompt?>(null) }
     var showLongText by remember { mutableStateOf(false) }
@@ -185,9 +186,11 @@ fun SessionDetailScreen(
                 actions = {
                     DetailsMenu(
                         session = ui.session,
+                        isTerminal = ui.transport == DetailTransport.TERMINAL,
                         onOpenDiff = { ui.session?.let { onOpenDiff(it.id) } },
                         onOpenSettings = { showSettings = true },
                         onRetry = viewModel::retryConnection,
+                        onSwitchView = { showSwitchView = true },
                     )
                 },
             )
@@ -372,6 +375,37 @@ fun SessionDetailScreen(
         )
     }
 
+    if (showSwitchView) {
+        AlertDialog(
+            onDismissRequest = { showSwitchView = false },
+            title = {
+                Text(if (ui.transport == DetailTransport.TERMINAL) "Passer en vue structurée ?" else "Passer en vue terminal ?")
+            },
+            text = {
+                Text(
+                    if (ui.transport == DetailTransport.TERMINAL) {
+                        "La session bascule vers le transcript ACP. Selon l'agent, le contexte peut être repris ou une nouvelle conversation démarrée."
+                    } else {
+                        "La session bascule vers le terminal tmux. Le transcript ACP reste disponible et vous pourrez revenir en vue structurée."
+                    },
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showSwitchView = false
+                    if (ui.transport == DetailTransport.TERMINAL) {
+                        viewModel.switchToStructured()
+                    } else {
+                        viewModel.switchToTerminal()
+                    }
+                }) { Text("Basculer") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSwitchView = false }) { Text("Annuler") }
+            },
+        )
+    }
+
     if (showSettings) {
         ConfigSheet(
             ui = ui,
@@ -406,6 +440,9 @@ private fun SessionHeader(ui: SessionDetailUiState) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
+        if (ui.viewSwitching) {
+            Text("bascule de vue…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        }
         ui.control.currentModeChoice?.takeIf { it.isNotBlank() }?.let { mode ->
             Text(
                 mode,
@@ -434,9 +471,11 @@ private fun SessionHeader(ui: SessionDetailUiState) {
 @Composable
 private fun DetailsMenu(
     session: Session?,
+    isTerminal: Boolean,
     onOpenDiff: () -> Unit,
     onOpenSettings: () -> Unit,
     onRetry: () -> Unit,
+    onSwitchView: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -458,6 +497,13 @@ private fun DetailsMenu(
                     onOpenDiff()
                 },
                 enabled = session != null,
+            )
+            DropdownMenuItem(
+                text = { Text(if (isTerminal) "Passer en vue structurée" else "Passer en vue terminal") },
+                onClick = {
+                    open = false
+                    onSwitchView()
+                },
             )
             DropdownMenuItem(
                 text = { Text("Reconnecter le flux") },
@@ -548,11 +594,13 @@ private fun UserRow(item: UserDisplay) {
             modifier = Modifier.fillMaxWidth(0.88f),
         ) {
             Column(Modifier.padding(horizontal = 11.dp, vertical = 8.dp)) {
-                Text(
-                    item.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                SelectionContainer {
+                    Text(
+                        item.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
                 if (item.attachments.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -653,14 +701,16 @@ private fun ToolRow(item: ToolDisplay) {
             }
             if (item.args.isNotBlank()) {
                 Spacer(Modifier.height(5.dp))
-                Text(
-                    item.args,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (expanded) 18 else 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                SelectionContainer {
+                    Text(
+                        item.args,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (expanded) 18 else 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             if (item.diffs.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
@@ -674,17 +724,19 @@ private fun ToolRow(item: ToolDisplay) {
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
                     shape = RoundedCornerShape(5.dp),
                 ) {
-                    Text(
-                        item.output,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(6.dp),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = if (expanded) 40 else 5,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    SelectionContainer {
+                        Text(
+                            item.output,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(6.dp),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = if (expanded) 40 else 5,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }

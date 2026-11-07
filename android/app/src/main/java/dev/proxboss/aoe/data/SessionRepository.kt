@@ -248,6 +248,15 @@ class SessionRepository(
         }
     }
 
+    suspend fun ensureTerminal(sessionId: String): ApiResult<Unit> =
+        simplePost("/api/sessions/$sessionId/terminal")
+
+    suspend fun acpEnable(sessionId: String): ApiResult<Unit> =
+        simplePost("/api/sessions/$sessionId/acp/enable")
+
+    suspend fun acpDisable(sessionId: String): ApiResult<Unit> =
+        simplePost("/api/sessions/$sessionId/acp/disable")
+
     suspend fun setMode(sessionId: String, modeId: String): ApiResult<Unit> {
         val body = JSONObject().put("mode_id", modeId).toString()
         return when (val result = client.post("/api/sessions/$sessionId/acp/mode", body)) {

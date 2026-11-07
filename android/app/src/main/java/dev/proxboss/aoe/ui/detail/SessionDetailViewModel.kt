@@ -59,6 +59,7 @@ data class SessionDetailUiState(
     val queuedPrompts: List<QueuedPrompt> = emptyList(),
     val queueLoading: Boolean = false,
     val imageUploading: Boolean = false,
+    val viewSwitching: Boolean = false,
 )
 
 class SessionDetailViewModel(
@@ -328,6 +329,57 @@ class SessionDetailViewModel(
                     )
                 }
                 is ApiResult.Err -> _ui.value = _ui.value.copy(configAction = null, error = result.message)
+            }
+        }
+    }
+
+    fun switchToTerminal() {
+        if (_ui.value.viewSwitching) return
+        _ui.value = _ui.value.copy(viewSwitching = true, error = null)
+        intentionallyClosed = true
+        socket?.close(1000, "switch view")
+        socket = null
+        _ui.value = _ui.value.copy(connected = false)
+        viewModelScope.launch {
+            when (val disabled = repository.acpDisable(sessionId)) {
+                is ApiResult.Ok -> {
+                    val terminal = repository.ensureTerminal(sessionId)
+                    refreshSession()
+                    _ui.value = _ui.value.copy(viewSwitching = false)
+                    if (terminal is ApiResult.Err) {
+                        _ui.value = _ui.value.copy(error = terminal.message)
+                        startAcp()
+                    } else {
+                        _ui.value = _ui.value.copy(notice = "Vue terminal.")
+                        startTerminal()
+                    }
+                }
+                is ApiResult.Err -> {
+                    _ui.value = _ui.value.copy(viewSwitching = false, error = disabled.message)
+                    reconnectSoon(1_000)
+                }
+            }
+        }
+    }
+
+    fun switchToStructured() {
+        if (_ui.value.viewSwitching) return
+        _ui.value = _ui.value.copy(viewSwitching = true, error = null)
+        intentionallyClosed = true
+        socket?.close(1000, "switch view")
+        socket = null
+        _ui.value = _ui.value.copy(connected = false)
+        viewModelScope.launch {
+            when (val enabled = repository.acpEnable(sessionId)) {
+                is ApiResult.Ok -> {
+                    refreshSession()
+                    _ui.value = _ui.value.copy(viewSwitching = false, notice = "Vue structurée.")
+                    startAcp()
+                }
+                is ApiResult.Err -> {
+                    _ui.value = _ui.value.copy(viewSwitching = false, error = enabled.message)
+                    startTerminal()
+                }
             }
         }
     }
