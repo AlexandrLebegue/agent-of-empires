@@ -10,8 +10,11 @@ import androidx.core.app.ServiceCompat
 import dev.proxboss.aoe.AoEApplication
 import dev.proxboss.aoe.AppContainer
 import dev.proxboss.aoe.data.AppSettings
+import dev.proxboss.aoe.data.AcpFrame
+import dev.proxboss.aoe.data.AcpFrameParser
 import dev.proxboss.aoe.data.StatusFrame
 import dev.proxboss.aoe.data.StatusFrameParser
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +24,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -118,7 +122,9 @@ class NotificationService : Service() {
                     container.sessionStore.sessions.value,
                     now,
                     quietHours,
-                ).forEach { alert -> NotificationHelper.postAlert(this, alert) }
+                ).forEach { alert ->
+                    scope.launch { notifyAlert(alert) }
+                }
                 delay(1_000)
             }
         } finally {
@@ -177,7 +183,9 @@ class NotificationService : Service() {
                             frame.event,
                             System.currentTimeMillis(),
                             QuietHours.from(currentSettings),
-                        )?.let { alert -> NotificationHelper.postAlert(this@NotificationService, alert) }
+                        )?.let { alert ->
+                            scope.launch { notifyAlert(alert) }
+                        }
                     }
                 }
                 StatusFrame.Unknown -> Unit
@@ -194,6 +202,42 @@ class NotificationService : Service() {
             connected = false
             signal.trySend(Unit)
         }
+    }
+
+    private suspend fun notifyAlert(alert: dev.proxboss.aoe.notify.NotificationAlert) {
+        val approval = if (alert.event == dev.proxboss.aoe.model.NotifyEvent.WAITING) {
+            pendingApprovalFor(alert.sessionId)
+        } else {
+            null
+        }
+        NotificationHelper.postAlert(this, alert, approval?.first, approval?.second)
+    }
+
+    private suspend fun pendingApprovalFor(sessionId: String): Pair<String, String>? {
+        val deferred = CompletableDeferred<Pair<String, String>?>()
+        val socket = container.client.openAcpSocket(sessionId, since = 0, listener = object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val frame = AcpFrameParser.parse(text)
+                if (frame is AcpFrame.ReducedState) {
+                    val approval = frame.payload.pendingApprovals?.firstOrNull()
+                    deferred.complete(
+                        approval?.let { it.nonce to it.toolCall.name.ifBlank { "outil" } },
+                    )
+                    webSocket.close(1000, "approval probe")
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                deferred.complete(null)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                deferred.complete(null)
+            }
+        }) ?: return null
+        val result = withTimeoutOrNull(4_000) { deferred.await() }
+        socket.close(1000, "approval probe")
+        return result?.takeIf { it.first.isNotBlank() }
     }
 
     private fun updateServiceNotification() {

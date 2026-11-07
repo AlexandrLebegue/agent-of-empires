@@ -527,6 +527,18 @@ class SessionRepository(
         }
     }
 
+    suspend fun resolveApprovalNonce(
+        sessionId: String,
+        nonce: String,
+        decision: String,
+    ): ApiResult<Unit> {
+        val body = JSONObject().put("decision", decision).toString()
+        return when (val result = client.post("/api/sessions/$sessionId/acp/approvals/${encode(nonce)}", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
     suspend fun resolveApproval(
         sessionId: String,
         approval: Approval,

@@ -21,6 +21,8 @@ object NotificationHelper {
     const val SERVICE_NOTIFICATION_ID = 1
     const val EXTRA_SESSION_ID = "aoe.session_id"
     const val ACTION_REPLY = "dev.proxboss.aoe.REPLY"
+    const val ACTION_APPROVE = "dev.proxboss.aoe.APPROVE"
+    const val EXTRA_NONCE = "aoe.approval_nonce"
     const val KEY_REPLY_TEXT = "aoe.reply_text"
     const val GROUP_STATUS = "dev.proxboss.aoe.status"
 
@@ -66,7 +68,12 @@ object NotificationHelper {
             .build()
     }
 
-    fun postAlert(context: Context, alert: NotificationAlert) {
+    fun postAlert(
+        context: Context,
+        alert: NotificationAlert,
+        approvalNonce: String? = null,
+        approvalTool: String? = null,
+    ) {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_SESSION_ID, alert.sessionId)
@@ -110,7 +117,11 @@ object NotificationHelper {
             .build()
 
         val label = when (alert.event) {
-            NotifyEvent.WAITING -> "Approbation requise"
+            NotifyEvent.WAITING -> if (approvalNonce != null) {
+                "Approbation requise : ${approvalTool ?: "outil"}"
+            } else {
+                "Approbation requise"
+            }
             NotifyEvent.ERROR -> "La session a signalé une erreur"
             NotifyEvent.IDLE -> "Run terminé"
         }
@@ -136,7 +147,28 @@ object NotificationHelper {
                     NotificationCompat.PRIORITY_HIGH
                 },
             )
-            .addAction(replyAction)
+        if (approvalNonce != null) {
+            val approveIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                action = ACTION_APPROVE
+                putExtra(EXTRA_SESSION_ID, alert.sessionId)
+                putExtra(EXTRA_NONCE, approvalNonce)
+                data = Uri.parse("aoe://session/${alert.sessionId}/approve/$approvalNonce")
+            }
+            val approvePending = PendingIntent.getBroadcast(
+                context,
+                notificationId(alert.sessionId) + 2,
+                approveIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder.addAction(
+                NotificationCompat.Action.Builder(
+                    android.R.drawable.checkbox_on_background,
+                    "Approuver",
+                    approvePending,
+                ).build(),
+            )
+        }
+        builder.addAction(replyAction)
             .addAction(
                 NotificationCompat.Action.Builder(
                     android.R.drawable.ic_menu_view,
