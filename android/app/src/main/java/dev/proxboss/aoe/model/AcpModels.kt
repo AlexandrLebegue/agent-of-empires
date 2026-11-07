@@ -128,3 +128,19 @@ sealed interface TranscriptDelta {
 }
 
 data class PendingUserPrompt(val id: String, val text: String)
+
+data class QueuedAttachment(
+    val id: String,
+    val kind: String,
+    val mimeType: String,
+    val name: String?,
+    val size: Long,
+)
+
+data class QueuedPrompt(
+    val id: String,
+    val seq: Long,
+    val text: String,
+    val attachments: List<QueuedAttachment>,
+    val createdAt: String,
+)

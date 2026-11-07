@@ -1,6 +1,8 @@
 package dev.proxboss.aoe.ui.detail
 
 import androidx.compose.foundation.clickable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,9 +64,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -76,6 +80,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.proxboss.aoe.model.QueuedPrompt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.util.Base64
 import dev.proxboss.aoe.model.AcpControl
 import dev.proxboss.aoe.model.Approval
 import dev.proxboss.aoe.model.ConfigOption
@@ -100,8 +109,36 @@ fun SessionDetailScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var composer by rememberSaveable { mutableStateOf("") }
+    var queueEditTarget by remember { mutableStateOf<QueuedPrompt?>(null) }
+    var showLongText by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val terminalScroll = rememberScrollState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val payload = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: return@runCatching null
+                        if (bytes.size > 6 * 1024 * 1024) null
+                        else {
+                            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+                            mime to Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        }
+                    }.getOrNull()
+                }
+                if (payload == null) {
+                    viewModel.showError("Image trop volumineuse ou illisible")
+                } else {
+                    viewModel.uploadImage(payload.first, payload.second) { path ->
+                        composer = if (composer.isBlank()) path else composer + "\n" + path
+                    }
+                }
+            }
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.onResume()
@@ -235,6 +272,18 @@ fun SessionDetailScreen(
                 }
             }
 
+            if (ui.transport == DetailTransport.ACP && ui.queuedPrompts.isNotEmpty()) {
+                QueueStrip(
+                    prompts = ui.queuedPrompts,
+                    loading = ui.queueLoading,
+                    onSendNow = viewModel::sendQueuedPrompt,
+                    onEdit = { queueEditTarget = it },
+                    onDelete = viewModel::deleteQueuedPrompt,
+                    onRefresh = viewModel::loadQueue,
+                    onClear = viewModel::clearQueue,
+                )
+            }
+
             if (ui.control.pendingApprovals.isNotEmpty()) {
                 Column(
                     modifier = Modifier
@@ -294,9 +343,33 @@ fun SessionDetailScreen(
                         }
                     }
                 },
+                onAttachImage = { imagePicker.launch("image/*") },
+                onLongText = { showLongText = true },
                 viewModel = viewModel,
             )
         }
+    }
+
+    queueEditTarget?.let { prompt ->
+        QueueEditDialog(
+            prompt = prompt,
+            onDismiss = { queueEditTarget = null },
+            onConfirm = { text ->
+                viewModel.editQueuedPrompt(prompt, text)
+                queueEditTarget = null
+            },
+        )
+    }
+
+    if (showLongText) {
+        LongTextDialog(
+            initial = composer,
+            onDismiss = { showLongText = false },
+            onConfirm = { text ->
+                composer = text
+                showLongText = false
+            },
+        )
     }
 
     if (showSettings) {
@@ -782,6 +855,8 @@ private fun ComposerArea(
     value: String,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
+    onAttachImage: () -> Unit,
+    onLongText: () -> Unit,
     viewModel: SessionDetailViewModel,
 ) {
     Surface(tonalElevation = 4.dp) {
@@ -821,6 +896,17 @@ private fun ComposerArea(
                     .padding(top = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                OutlinedButton(
+                    onClick = onAttachImage,
+                    enabled = !ui.imageUploading,
+                ) {
+                    if (ui.imageUploading) {
+                        CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("Image")
+                    }
+                }
+                OutlinedButton(onClick = onLongText) { Text("Texte long") }
                 if (ui.control.turnActive) {
                     OutlinedButton(
                         onClick = viewModel::cancelTurn,
@@ -1126,4 +1212,123 @@ private fun ConfigPicker(
             }
         }
     }
+}
+
+
+@Composable
+private fun QueueStrip(
+    prompts: List<QueuedPrompt>,
+    loading: Boolean,
+    onSendNow: (QueuedPrompt) -> Unit,
+    onEdit: (QueuedPrompt) -> Unit,
+    onDelete: (QueuedPrompt) -> Unit,
+    onRefresh: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "File d'attente (${prompts.size})",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onRefresh, enabled = !loading) { Text("Actualiser") }
+                TextButton(onClick = onClear, enabled = prompts.isNotEmpty()) { Text("Vider") }
+            }
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 170.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                prompts.forEach { prompt ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                prompt.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (prompt.attachments.isNotEmpty()) {
+                                Text(
+                                    prompt.attachments.mapNotNull { it.name ?: it.kind }.joinToString(" · "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        TextButton(onClick = { onEdit(prompt) }) { Text("Modifier") }
+                        TextButton(onClick = { onSendNow(prompt) }) { Text("Envoyer") }
+                        TextButton(onClick = { onDelete(prompt) }) {
+                            Text("Suppr.", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueueEditDialog(
+    prompt: QueuedPrompt,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember(prompt.id) { mutableStateOf(prompt.text) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Modifier le prompt en attente") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.heightIn(min = 120.dp),
+                label = { Text("Prompt") },
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) { Text("Enregistrer") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+@Composable
+private fun LongTextDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Texte long") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.heightIn(min = 220.dp, max = 420.dp),
+                label = { Text("Texte à envoyer") },
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(text) }) { Text("Utiliser") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
 }

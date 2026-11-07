@@ -322,6 +322,59 @@ class SessionRepository(
         }
     }
 
+    suspend fun listQueue(sessionId: String): ApiResult<List<dev.proxboss.aoe.model.QueuedPrompt>> =
+        client.get("/api/sessions/$sessionId/queue").map { QueueMapper.parseQueue(it) }
+
+    suspend fun editQueuedPrompt(sessionId: String, promptId: String, text: String): ApiResult<Unit> {
+        val body = JSONObject().put("text", text).toString()
+        return when (val result = client.patch("/api/sessions/$sessionId/queue/${encode(promptId)}", body)) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun removeQueuedPrompt(sessionId: String, promptId: String): ApiResult<Unit> =
+        when (val result = client.delete("/api/sessions/$sessionId/queue/${encode(promptId)}")) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
+    suspend fun clearQueue(sessionId: String): ApiResult<Unit> =
+        when (val result = client.delete("/api/sessions/$sessionId/queue")) {
+            is ApiResult.Ok -> ApiResult.Ok(Unit)
+            is ApiResult.Err -> result
+        }
+
+    suspend fun sendQueuedPrompt(sessionId: String, prompt: dev.proxboss.aoe.model.QueuedPrompt): ApiResult<PromptDispatchResult> {
+        val body = JSONObject()
+            .put("text", prompt.text)
+            .put("prompt_id", UUID.randomUUID().toString())
+            .put("queued_prompt_id", prompt.id)
+            .toString()
+        return when (val result = client.post("/api/sessions/$sessionId/acp/prompt", body)) {
+            is ApiResult.Ok -> {
+                val parsed = runCatching { JSONObject(result.value) }.getOrNull()
+                val disposition = parsed?.optString("disposition").orEmpty().ifBlank { null }
+                ApiResult.Ok(PromptDispatchResult(queued = disposition == "queued", disposition = disposition))
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
+    suspend fun pasteImage(sessionId: String, mimeType: String, base64: String): ApiResult<String> {
+        val body = JSONObject()
+            .put("mime_type", mimeType)
+            .put("data", base64)
+            .toString()
+        return when (val result = client.post("/api/sessions/$sessionId/paste-image", body)) {
+            is ApiResult.Ok -> {
+                val path = QueueMapper.parsePastedPath(result.value)
+                if (path.isNullOrBlank()) ApiResult.Err("Réponse de collage illisible") else ApiResult.Ok(path)
+            }
+            is ApiResult.Err -> result
+        }
+    }
+
     suspend fun resolveApproval(
         sessionId: String,
         approval: Approval,

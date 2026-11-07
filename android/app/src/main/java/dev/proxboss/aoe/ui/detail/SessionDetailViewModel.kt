@@ -13,6 +13,7 @@ import dev.proxboss.aoe.model.AcpAgent
 import dev.proxboss.aoe.model.AcpControl
 import dev.proxboss.aoe.model.Approval
 import dev.proxboss.aoe.model.DisplayItem
+import dev.proxboss.aoe.model.QueuedPrompt
 import dev.proxboss.aoe.model.Session
 import dev.proxboss.aoe.model.TranscriptDisplay
 import dev.proxboss.aoe.net.ApiResult
@@ -55,6 +56,9 @@ data class SessionDetailUiState(
     val acpAgents: List<AcpAgent> = emptyList(),
     val acpAgentsLoading: Boolean = false,
     val switchingAgent: String? = null,
+    val queuedPrompts: List<QueuedPrompt> = emptyList(),
+    val queueLoading: Boolean = false,
+    val imageUploading: Boolean = false,
 )
 
 class SessionDetailViewModel(
@@ -102,6 +106,7 @@ class SessionDetailViewModel(
         }
         startPeriodicRefresh()
         loadAcpAgents()
+        loadQueue()
     }
 
     fun retryConnection() {
@@ -114,6 +119,10 @@ class SessionDetailViewModel(
 
     fun dismissError() {
         _ui.value = _ui.value.copy(error = null)
+    }
+
+    fun showError(message: String) {
+        _ui.value = _ui.value.copy(error = message)
     }
 
     fun onResume() {
@@ -153,6 +162,7 @@ class SessionDetailViewModel(
                         publishRows()
                     }
                     onSent()
+                    loadQueue()
                 }
                 is ApiResult.Err -> {
                     builder.clearOptimistic()
@@ -163,7 +173,98 @@ class SessionDetailViewModel(
         }
     }
 
-    fun cancelTurn() = runSessionAction("Annulation demandée") { repository.cancelTurn(sessionId) }
+    fun cancelTurn() {
+        runSessionAction("Annulation demandée") { repository.cancelTurn(sessionId) }
+        viewModelScope.launch {
+            delay(800)
+            loadQueue()
+        }
+    }
+
+    fun loadQueue() {
+        if (_ui.value.queueLoading) return
+        _ui.value = _ui.value.copy(queueLoading = true)
+        viewModelScope.launch {
+            when (val result = repository.listQueue(sessionId)) {
+                is ApiResult.Ok -> _ui.value = _ui.value.copy(queuedPrompts = result.value, queueLoading = false)
+                is ApiResult.Err -> _ui.value = _ui.value.copy(queueLoading = false)
+            }
+        }
+    }
+
+    fun sendQueuedPrompt(prompt: QueuedPrompt) {
+        val previous = _ui.value.queuedPrompts
+        _ui.value = _ui.value.copy(queuedPrompts = previous.filter { it.id != prompt.id }, error = null)
+        viewModelScope.launch {
+            when (val result = repository.sendQueuedPrompt(sessionId, prompt)) {
+                is ApiResult.Ok -> {
+                    _ui.value = _ui.value.copy(
+                        notice = if (result.value.queued) {
+                            "Le prompt reste en file d'attente."
+                        } else {
+                            "Prompt envoyé."
+                        },
+                    )
+                    loadQueue()
+                }
+                is ApiResult.Err -> _ui.value = _ui.value.copy(
+                    queuedPrompts = previous,
+                    error = result.message,
+                )
+            }
+        }
+    }
+
+    fun editQueuedPrompt(prompt: QueuedPrompt, text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return
+        val previous = _ui.value.queuedPrompts
+        _ui.value = _ui.value.copy(
+            queuedPrompts = previous.map { if (it.id == prompt.id) it.copy(text = trimmed) else it },
+        )
+        viewModelScope.launch {
+            when (val result = repository.editQueuedPrompt(sessionId, prompt.id, trimmed)) {
+                is ApiResult.Ok -> Unit
+                is ApiResult.Err -> _ui.value = _ui.value.copy(queuedPrompts = previous, error = result.message)
+            }
+        }
+    }
+
+    fun deleteQueuedPrompt(prompt: QueuedPrompt) {
+        val previous = _ui.value.queuedPrompts
+        _ui.value = _ui.value.copy(queuedPrompts = previous.filter { it.id != prompt.id })
+        viewModelScope.launch {
+            when (val result = repository.removeQueuedPrompt(sessionId, prompt.id)) {
+                is ApiResult.Ok -> Unit
+                is ApiResult.Err -> _ui.value = _ui.value.copy(queuedPrompts = previous, error = result.message)
+            }
+        }
+    }
+
+    fun clearQueue() {
+        val previous = _ui.value.queuedPrompts
+        _ui.value = _ui.value.copy(queuedPrompts = emptyList())
+        viewModelScope.launch {
+            when (val result = repository.clearQueue(sessionId)) {
+                is ApiResult.Ok -> _ui.value = _ui.value.copy(notice = "File d'attente vidée")
+                is ApiResult.Err -> _ui.value = _ui.value.copy(queuedPrompts = previous, error = result.message)
+            }
+        }
+    }
+
+    fun uploadImage(mimeType: String, base64: String, onPath: (String) -> Unit) {
+        if (_ui.value.imageUploading) return
+        _ui.value = _ui.value.copy(imageUploading = true, error = null)
+        viewModelScope.launch {
+            when (val result = repository.pasteImage(sessionId, mimeType, base64)) {
+                is ApiResult.Ok -> {
+                    _ui.value = _ui.value.copy(imageUploading = false, notice = "Image collée dans la session.")
+                    onPath(result.value)
+                }
+                is ApiResult.Err -> _ui.value = _ui.value.copy(imageUploading = false, error = result.message)
+            }
+        }
+    }
     fun stopSession() = runSessionAction(
         successMessage = "Arrêt demandé",
         closeStream = true,
@@ -443,6 +544,7 @@ class SessionDetailViewModel(
             if (socket !== webSocket) return
             reconnectAttempt = 0
             _ui.value = _ui.value.copy(connecting = false, connected = true, error = null)
+            loadQueue()
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
