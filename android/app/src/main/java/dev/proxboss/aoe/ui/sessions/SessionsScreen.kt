@@ -29,19 +29,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -59,7 +53,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -67,15 +60,17 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -89,6 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
@@ -302,41 +298,64 @@ fun SessionsScreen(
                             )
                         }
                     }
-                    ui.workspaces.forEach { workspace ->
-                        item(key = "workspace-${workspace.id}") {
-                            WorkspaceHeader(
-                                workspace = workspace,
-                                onClick = { viewModel.toggleWorkspace(workspace.id) },
+                    val favorites = ui.workspaces
+                        .flatMap { it.sessions }
+                        .filter { it.favorited }
+                        .distinctBy { it.id }
+                    val favoriteIds = favorites.mapTo(HashSet()) { it.id }
+                    val favoriteWorkspace = WorkspaceUi(
+                        id = "__favorites__",
+                        label = "Favoris",
+                        projectPath = "",
+                        sessions = favorites,
+                        collapsed = "ws:__favorites__" in ui.collapsedGroups,
+                    )
+                    val projectWorkspaces = ui.workspaces.mapNotNull { workspace ->
+                        val sessions = workspace.sessions.filterNot { it.id in favoriteIds }
+                        if (sessions.isEmpty()) null else workspace.copy(sessions = sessions)
+                    }
+                    val actionsFor: (Session) -> SessionRowActions = { session ->
+                        SessionRowActions(
+                            onOpen = {
+                                viewModel.markRead(session)
+                                onOpenSession(session.id)
+                            },
+                            onTogglePin = { viewModel.togglePin(session) },
+                            onToggleFavorite = { viewModel.toggleFavorite(session) },
+                            onToggleMuted = { viewModel.toggleMuted(session) },
+                            onToggleRead = { viewModel.toggleRead(session) },
+                            onRename = { renameTarget = session },
+                            onSnooze = { snoozeTarget = session },
+                            onColor = { colorTarget = session },
+                            onArchive = { viewModel.toggleArchive(session) },
+                            onTrash = { trashTarget = session },
+                            onRestore = { viewModel.restore(session) },
+                            onStop = { viewModel.stop(session) },
+                            onStart = { viewModel.start(session) },
+                            onRestart = { viewModel.restart(session) },
+                            onMoveUp = { viewModel.reorder(session, up = true) },
+                            onMoveDown = { viewModel.reorder(session, up = false) },
+                            onMoveGroup = { moveGroupTarget = session },
+                        )
+                    }
+                    if (favorites.isNotEmpty()) {
+                        item(key = "workspace-__favorites__") {
+                            WorkspaceCard(
+                                workspace = favoriteWorkspace,
+                                favorites = true,
+                                onToggle = { viewModel.toggleWorkspace("__favorites__") },
+                                actionsFor = actionsFor,
                             )
                         }
-                        if (!workspace.collapsed) {
-                            items(workspace.sessions, key = { it.id }) { session ->
-                            SwipeableSessionRow(
-                                session = session,
-                                actions = SessionRowActions(
-                                    onOpen = {
-                                        viewModel.markRead(session)
-                                        onOpenSession(session.id)
-                                    },
-                                    onTogglePin = { viewModel.togglePin(session) },
-                                    onToggleFavorite = { viewModel.toggleFavorite(session) },
-                                    onToggleMuted = { viewModel.toggleMuted(session) },
-                                    onToggleRead = { viewModel.toggleRead(session) },
-                                    onRename = { renameTarget = session },
-                                    onSnooze = { snoozeTarget = session },
-                                    onColor = { colorTarget = session },
-                                    onArchive = { viewModel.toggleArchive(session) },
-                                    onTrash = { trashTarget = session },
-                                    onRestore = { viewModel.restore(session) },
-                                    onStop = { viewModel.stop(session) },
-                                    onStart = { viewModel.start(session) },
-                                    onRestart = { viewModel.restart(session) },
-                                    onMoveUp = { viewModel.reorder(session, up = true) },
-                                    onMoveDown = { viewModel.reorder(session, up = false) },
-                                    onMoveGroup = { moveGroupTarget = session },
-                                ),
+                    }
+                    projectWorkspaces.forEach { workspace ->
+                        item(key = "workspace-${workspace.id}") {
+                            WorkspaceCard(
+                                workspace = workspace,
+                                favorites = false,
+                                onToggle = { viewModel.toggleWorkspace(workspace.id) },
+                                actionsFor = actionsFor,
                             )
-                            }
                         }
                     }
                 }
@@ -768,77 +787,139 @@ private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun WorkspaceHeader(
+private fun WorkspaceCard(
     workspace: WorkspaceUi,
-    onClick: () -> Unit,
+    favorites: Boolean,
+    onToggle: () -> Unit,
+    actionsFor: (Session) -> SessionRowActions,
 ) {
-    Row(
+    val accent = if (favorites) AoEPalette.Amber else projectAccent(workspace.id)
+    val expanded = !workspace.collapsed
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 0f else -90f,
+        label = "workspace-chevron",
+    )
+    val aggregate = aggregateState(workspace.sessions)
+
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 14.dp, bottom = 4.dp)
-            .clickable(onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically,
+            .animateContentSize(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF0D1728),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        val accent = projectAccent(workspace.id)
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            accent.copy(alpha = 0.34f),
-                            accent.copy(alpha = 0.12f),
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(accent.copy(alpha = 0.34f), accent.copy(alpha = 0.12f)),
+                            ),
+                            CircleShape,
                         ),
-                    ),
-                    CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Default.Folder,
-                contentDescription = null,
-                modifier = Modifier.size(19.dp),
-                tint = accent,
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    workspace.label,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (workspace.sessions.size > 1) {
-                    Spacer(Modifier.width(7.dp))
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                        shape = RoundedCornerShape(50),
-                    ) {
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (favorites) Icons.Default.Star else Icons.Default.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp),
+                        tint = accent,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            workspace.sessions.size.toString(),
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            workspace.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
+                        if (workspace.sessions.size > 1) {
+                            Spacer(Modifier.width(7.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                shape = RoundedCornerShape(50),
+                            ) {
+                                Text(
+                                    workspace.sessions.size.toString(),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        aggregate.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = aggregate.color,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Replier le projet" else "Déplier le projet",
+                    modifier = Modifier
+                        .size(22.dp)
+                        .rotate(rotation),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    workspace.sessions.forEachIndexed { index, session ->
+                        SessionRow(
+                            session = session,
+                            actions = actionsFor(session),
+                            embedded = true,
+                        )
+                        if (index != workspace.sessions.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 54.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                            )
+                        }
                     }
                 }
             }
         }
-        Icon(
-            if (workspace.collapsed) {
-                Icons.AutoMirrored.Filled.KeyboardArrowRight
-            } else {
-                Icons.Default.KeyboardArrowDown
-            },
-            contentDescription = if (workspace.collapsed) "Déplier le projet" else "Replier le projet",
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
+}
+
+private data class AggregateState(val label: String, val color: Color)
+
+private fun aggregateState(sessions: List<Session>): AggregateState = when {
+    sessions.any { it.status == SessionStatus.WAITING } ->
+        AggregateState("en attente d'approbation", AoEPalette.Amber)
+    sessions.any { it.status == SessionStatus.ERROR } ->
+        AggregateState("erreur", AoEPalette.Rose)
+    sessions.any {
+        it.status == SessionStatus.RUNNING ||
+            it.status == SessionStatus.STARTING ||
+            it.status == SessionStatus.CREATING
+    } -> AggregateState("en cours", AoEPalette.Cyan)
+    else -> AggregateState("au repos", AoEPalette.Green)
 }
 
 @Composable
@@ -948,64 +1029,15 @@ private class SessionRowActions(
     val onMoveGroup: () -> Unit,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SwipeableSessionRow(session: Session, actions: SessionRowActions) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    if (session.isTrashed) actions.onRestore() else actions.onToggleFavorite()
-                    false
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    if (!session.isTrashed) actions.onArchive()
-                    false
-                }
-                else -> false
-            }
-        },
-    )
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = true,
-        enableDismissFromEndToStart = !session.isTrashed,
-        backgroundContent = {
-            val startToEnd = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            val color = if (startToEnd) {
-                if (session.isTrashed) MaterialTheme.colorScheme.primary else Color(0xFFF2C46D)
-            } else {
-                MaterialTheme.colorScheme.secondary
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(color.copy(alpha = 0.22f))
-                    .padding(horizontal = 20.dp),
-                contentAlignment = if (startToEnd) Alignment.CenterStart else Alignment.CenterEnd,
-            ) {
-                Icon(
-                    imageVector = when {
-                        startToEnd && session.isTrashed -> Icons.Default.RestoreFromTrash
-                        startToEnd -> Icons.Default.Star
-                        else -> Icons.Default.Archive
-                    },
-                    contentDescription = null,
-                    tint = color,
-                )
-            }
-        },
-    ) {
-        SessionRow(session, actions)
-    }
-}
 
 @Composable
-private fun SessionRow(session: Session, actions: SessionRowActions) {
+private fun SessionRow(session: Session, actions: SessionRowActions, embedded: Boolean = false) {
     val muted = session.notifyOnWaiting == false &&
         session.notifyOnIdle == false &&
         session.notifyOnError == false
-    val highlight = when {
+    val highlight = if (embedded) {
+        Color.Transparent
+    } else when {
         session.isTrashed -> Color(0xFF121A2A)
         session.status == SessionStatus.WAITING -> Color(0xFF271F10)
         session.status == SessionStatus.ERROR -> Color(0xFF27131A)
@@ -1042,11 +1074,18 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
             containerColor = highlight,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ),
-        border = BorderStroke(1.dp, borderColor),
-        shape = RoundedCornerShape(18.dp),
+        border = if (embedded) null else BorderStroke(1.dp, borderColor),
+        shape = if (embedded) RoundedCornerShape(0.dp) else RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(start = 12.dp, top = 9.dp, end = 4.dp, bottom = 9.dp)) {
+        Column(
+            Modifier.padding(
+                start = if (embedded) 14.dp else 12.dp,
+                top = 8.dp,
+                end = 4.dp,
+                bottom = 8.dp,
+            ),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(session.status, size = if (session.unread) 11 else 9)
                 Spacer(Modifier.width(8.dp))
