@@ -11,8 +11,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
 import dev.proxboss.aoe.MainActivity
 import dev.proxboss.aoe.R
 import dev.proxboss.aoe.model.NotifyEvent
@@ -61,7 +59,6 @@ object NotificationHelper {
         )
         return NotificationCompat.Builder(context, CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_stat_aoe)
-            .setLargeIcon(appIcon(context))
             .setColor(0xFF67E8F9.toInt())
             .setContentTitle("AoE Companion")
             .setContentText(if (connected) "Surveillance des sessions connectée" else "Reconnexion au serveur…")
@@ -131,7 +128,6 @@ object NotificationHelper {
         }
         val builder = NotificationCompat.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(R.drawable.ic_stat_aoe)
-            .setLargeIcon(appIcon(context))
             .setColor(0xFF67E8F9.toInt())
             .setContentTitle(alert.title)
             .setContentText(label)
@@ -203,8 +199,4 @@ object NotificationHelper {
 
     fun notificationId(sessionId: String): Int = 1_000 + (sessionId.hashCode() and 0x7fffffff) % 1_000_000
 
-    private fun appIcon(context: Context): android.graphics.Bitmap? =
-        runCatching {
-            ContextCompat.getDrawable(context, R.mipmap.ic_launcher)?.toBitmap(128, 128)
-        }.getOrNull()
 }
