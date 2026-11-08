@@ -65,6 +65,7 @@ data class SessionDetailUiState(
     val viewSwitching: Boolean = false,
     val hasOlder: Boolean = false,
     val loadingOlder: Boolean = false,
+    val queueSendingId: String? = null,
 )
 
 class SessionDetailViewModel(
@@ -209,24 +210,45 @@ class SessionDetailViewModel(
     }
 
     fun sendQueuedPrompt(prompt: QueuedPrompt) {
-        val previous = _ui.value.queuedPrompts
-        _ui.value = _ui.value.copy(queuedPrompts = previous.filter { it.id != prompt.id }, error = null)
+        if (_ui.value.queueSendingId != null) return
+        _ui.value = _ui.value.copy(queueSendingId = prompt.id, error = null)
         viewModelScope.launch {
-            when (val result = repository.sendQueuedPrompt(sessionId, prompt)) {
-                is ApiResult.Ok -> {
-                    _ui.value = _ui.value.copy(
-                        notice = if (result.value.queued) {
-                            "Le prompt reste en file d'attente."
-                        } else {
-                            "Prompt envoyé."
-                        },
-                    )
-                    loadQueue()
+            try {
+                var result = repository.sendQueuedPrompt(sessionId, prompt)
+                var sent = result is ApiResult.Ok && !result.value.queued
+                var gone = result is ApiResult.Err && result.message.contains("queued_prompt_gone")
+                // A running, non-steerable turn parks the prompt again. Interrupt
+                // that turn, wait for its Stopped, then deliver the row directly.
+                if (result is ApiResult.Ok && result.value.queued && _ui.value.control.turnActive) {
+                    _ui.value = _ui.value.copy(notice = "Interruption du tour en cours…")
+                    repository.cancelTurn(sessionId)
+                    for (attempt in 0 until 12) {
+                        delay(500)
+                        if (!_ui.value.control.turnActive) break
+                    }
+                    result = repository.sendQueuedPrompt(sessionId, prompt)
+                    sent = result is ApiResult.Ok && !result.value.queued
+                    gone = result is ApiResult.Err && result.message.contains("queued_prompt_gone")
                 }
-                is ApiResult.Err -> _ui.value = _ui.value.copy(
-                    queuedPrompts = previous,
-                    error = result.message,
-                )
+                when {
+                    sent || gone -> {
+                        _ui.value = _ui.value.copy(
+                            queuedPrompts = _ui.value.queuedPrompts.filter { it.id != prompt.id },
+                            notice = "Prompt envoyé.",
+                        )
+                        loadQueue()
+                    }
+                    result is ApiResult.Ok -> {
+                        _ui.value = _ui.value.copy(notice = "Prompt remis en file d'attente.")
+                        loadQueue()
+                    }
+                    result is ApiResult.Err -> {
+                        _ui.value = _ui.value.copy(error = result.message)
+                        loadQueue()
+                    }
+                }
+            } finally {
+                _ui.value = _ui.value.copy(queueSendingId = null)
             }
         }
     }

@@ -88,10 +88,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.proxboss.aoe.model.QueuedPrompt
+import dev.proxboss.aoe.util.ImagePayload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.util.Base64
 import dev.proxboss.aoe.model.AcpControl
 import dev.proxboss.aoe.model.Approval
 import dev.proxboss.aoe.model.ConfigOption
@@ -126,20 +126,12 @@ fun SessionDetailScreen(
         if (uri != null) {
             scope.launch {
                 val payload = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                            ?: return@runCatching null
-                        if (bytes.size > 6 * 1024 * 1024) null
-                        else {
-                            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
-                            mime to Base64.encodeToString(bytes, Base64.NO_WRAP)
-                        }
-                    }.getOrNull()
+                    ImagePayload.prepare(context, uri)
                 }
                 if (payload == null) {
-                    viewModel.showError("Image trop volumineuse ou illisible")
+                    viewModel.showError("Image illisible ou trop volumineuse")
                 } else {
-                    viewModel.uploadImage(payload.first, payload.second) { path ->
+                    viewModel.uploadImage(payload.mimeType, payload.base64) { path ->
                         composer = if (composer.isBlank()) path else composer + "\n" + path
                     }
                 }
@@ -335,6 +327,8 @@ fun SessionDetailScreen(
                 QueueStrip(
                     prompts = ui.queuedPrompts,
                     loading = ui.queueLoading,
+                    sendingId = ui.queueSendingId,
+                    interruptsTurn = ui.control.turnActive,
                     onSendNow = viewModel::sendQueuedPrompt,
                     onEdit = { queueEditTarget = it },
                     onDelete = viewModel::deleteQueuedPrompt,
@@ -1319,6 +1313,8 @@ private fun ConfigPicker(
 private fun QueueStrip(
     prompts: List<QueuedPrompt>,
     loading: Boolean,
+    sendingId: String?,
+    interruptsTurn: Boolean,
     onSendNow: (QueuedPrompt) -> Unit,
     onEdit: (QueuedPrompt) -> Unit,
     onDelete: (QueuedPrompt) -> Unit,
@@ -1343,6 +1339,13 @@ private fun QueueStrip(
                 )
                 TextButton(onClick = onRefresh, enabled = !loading) { Text("Actualiser") }
                 TextButton(onClick = onClear, enabled = prompts.isNotEmpty()) { Text("Vider") }
+            }
+            if (interruptsTurn) {
+                Text(
+                    "Envoyer interrompt le tour en cours pour délivrer le message.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Column(
                 modifier = Modifier
@@ -1372,7 +1375,16 @@ private fun QueueStrip(
                             }
                         }
                         TextButton(onClick = { onEdit(prompt) }) { Text("Modifier") }
-                        TextButton(onClick = { onSendNow(prompt) }) { Text("Envoyer") }
+                        TextButton(
+                            onClick = { onSendNow(prompt) },
+                            enabled = sendingId == null,
+                        ) {
+                            if (sendingId == prompt.id) {
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Envoyer")
+                            }
+                        }
                         TextButton(onClick = { onDelete(prompt) }) {
                             Text("Suppr.", color = MaterialTheme.colorScheme.error)
                         }
