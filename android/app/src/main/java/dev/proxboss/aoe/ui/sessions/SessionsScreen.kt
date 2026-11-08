@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,7 +49,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -148,15 +148,27 @@ fun SessionsScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreateSession,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Nouvelle session", fontWeight = FontWeight.SemiBold) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            )
+        bottomBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                tonalElevation = 4.dp,
+            ) {
+                Button(
+                    onClick = onCreateSession,
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Nouvelle session", fontWeight = FontWeight.SemiBold)
+                }
+            }
         },
         topBar = {
             TopAppBar(
@@ -189,9 +201,10 @@ fun SessionsScreen(
                             Text(
                                 "AGENT OF EMPIRES",
                                 style = MaterialTheme.typography.labelSmall,
-                                letterSpacing = 1.6.sp,
+                                letterSpacing = 1.1.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
                             )
                             Text(
                                 "Sessions",
@@ -211,15 +224,6 @@ fun SessionsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::toggleSortMode) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = "Tri : ${ui.sortMode.labelFr}",
-                        )
-                    }
-                    IconButton(onClick = { viewModel.refresh(showSpinner = true) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir")
-                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Réglages")
                     }
@@ -228,6 +232,20 @@ fun SessionsScreen(
                             Icon(Icons.Default.MoreVert, contentDescription = "Plus d'actions")
                         }
                         DropdownMenu(expanded = mainMenuOpen, onDismissRequest = { mainMenuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Rafraîchir") },
+                                onClick = {
+                                    mainMenuOpen = false
+                                    viewModel.refresh(showSpinner = true)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Tri : ${ui.sortMode.labelFr}") },
+                                onClick = {
+                                    mainMenuOpen = false
+                                    viewModel.toggleSortMode()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Nouveau groupe") },
                                 onClick = {
@@ -274,7 +292,7 @@ fun SessionsScreen(
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                 ),
-                placeholder = { Text("Rechercher une session ou une conversation…") },
+                placeholder = { Text("Rechercher une session…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (ui.query.isNotEmpty()) {
@@ -323,15 +341,22 @@ fun SessionsScreen(
                     .padding(horizontal = 14.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                CountBadge("${ui.activeCount} actives", MaterialTheme.colorScheme.primary)
-                CountBadge("${ui.waitingCount} en attente", Color(0xFFF0A43A))
-                CountBadge("${ui.unreadCount} non lues", MaterialTheme.colorScheme.tertiary)
-                Text(
-                    "Tri : ${ui.sortMode.labelFr}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 3.dp),
+                CountBadge(
+                    if (ui.activeCount > 1) "${ui.activeCount} actives" else "${ui.activeCount} active",
+                    MaterialTheme.colorScheme.primary,
                 )
+                if (ui.waitingCount > 0) {
+                    CountBadge(
+                        if (ui.waitingCount > 1) "${ui.waitingCount} en attente" else "1 en attente",
+                        AoEPalette.Amber,
+                    )
+                }
+                if (ui.unreadCount > 0) {
+                    CountBadge(
+                        if (ui.unreadCount > 1) "${ui.unreadCount} non lues" else "1 non lue",
+                        MaterialTheme.colorScheme.tertiary,
+                    )
+                }
             }
 
             if (ui.offline) {
@@ -453,7 +478,6 @@ fun SessionsScreen(
                             }
                         }
                     }
-                    item { Spacer(Modifier.height(28.dp)) }
                 }
             }
         }
@@ -582,6 +606,7 @@ private fun CountBadge(label: String, color: Color) {
 private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -651,29 +676,25 @@ private fun WorkspaceHeader(
                     workspace.label,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.width(7.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                    shape = RoundedCornerShape(50),
-                ) {
-                    Text(
-                        workspace.sessions.size.toString(),
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                if (workspace.sessions.size > 1) {
+                    Spacer(Modifier.width(7.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Text(
+                            workspace.sessions.size.toString(),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
-            Text(
-                workspace.projectPath,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
         Icon(
             if (workspace.collapsed) {
@@ -746,6 +767,7 @@ private fun SearchHitRow(hit: SearchHit, title: String, onClick: () -> Unit) {
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -852,10 +874,10 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
         session.notifyOnIdle == false &&
         session.notifyOnError == false
     val highlight = when {
-        session.isTrashed -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
-        session.status == SessionStatus.WAITING -> AoEPalette.Amber.copy(alpha = 0.10f)
-        session.status == SessionStatus.ERROR -> MaterialTheme.colorScheme.error.copy(alpha = 0.09f)
-        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        session.isTrashed -> Color(0xFF121A2A)
+        session.status == SessionStatus.WAITING -> Color(0xFF271F10)
+        session.status == SessionStatus.ERROR -> Color(0xFF27131A)
+        else -> Color(0xFF0E182A)
     }
     val borderColor = when {
         session.status == SessionStatus.WAITING -> AoEPalette.Amber.copy(alpha = 0.55f)
@@ -864,6 +886,14 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
         else -> MaterialTheme.colorScheme.outlineVariant
     }
     var menuOpen by remember { mutableStateOf(false) }
+    val hasDetailRow = !session.branch.isNullOrBlank() ||
+        session.groupPath.isNotBlank() ||
+        session.status == SessionStatus.WAITING ||
+        session.dormant ||
+        session.isArchived ||
+        session.isSnoozed ||
+        session.isTrashed ||
+        muted
     val colorDot = when (session.color) {
         "red" -> Color(0xFFE05A5A)
         "amber" -> Color(0xFFF0A43A)
@@ -876,7 +906,10 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (session.isArchived) 0.7f else 1f),
-        colors = CardDefaults.cardColors(containerColor = highlight),
+        colors = CardDefaults.cardColors(
+            containerColor = highlight,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
         border = BorderStroke(1.dp, borderColor),
         shape = RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -900,6 +933,12 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                     fontWeight = if (session.unread) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    TimeFormat.formatAge(session.activityAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 4.dp),
                 )
                 if (session.isPinned) {
                     Icon(
@@ -1072,13 +1111,10 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    TimeFormat.formatAge(session.activityAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                StatusPill(session.status)
             }
 
+            if (hasDetailRow) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1086,7 +1122,6 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                StatusPill(session.status)
                 if (!session.branch.isNullOrBlank()) {
                     BadgeText(session.branch, MaterialTheme.colorScheme.primary)
                 }
@@ -1136,6 +1171,7 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
             }
         }
     }

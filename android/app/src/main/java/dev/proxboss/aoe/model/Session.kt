@@ -44,6 +44,7 @@ data class Session(
     val acpCapable: Boolean,
     val acpWorkerState: String?,
     val hasTerminal: Boolean,
+    val scratch: Boolean = false,
     val lastAccessedAt: Instant?,
     val idleEnteredAt: Instant?,
     val createdAt: Instant?,

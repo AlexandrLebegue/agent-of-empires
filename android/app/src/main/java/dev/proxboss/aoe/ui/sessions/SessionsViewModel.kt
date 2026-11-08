@@ -35,6 +35,7 @@ data class WorkspaceUi(
     val label: String,
     val projectPath: String,
     val sessions: List<Session>,
+    val scratch: Boolean = false,
     val collapsed: Boolean = false,
 )
 
@@ -622,7 +623,9 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         val visible = state.sessions.filterNot { it.isTrashed }
         val rank = state.workspaceOrdering.withIndex().associate { it.value to it.index }
         val workspaceDrafts = filtered
-            .groupBy { normalizeProjectPath(it.mainRepoPath ?: it.projectPath) }
+            .groupBy {
+                if (it.scratch) "__scratch__" else normalizeProjectPath(it.mainRepoPath ?: it.projectPath)
+            }
             .map { (projectPath, sessions) ->
                 val ordered = if (state.sortMode == SessionSortMode.MANUAL) {
                     sessions.sortedWith(
@@ -639,10 +642,12 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
                 }
                 val bestRank = sessions.minOfOrNull { rank[workspaceIdFor(it)] ?: Int.MAX_VALUE }
                     ?: Int.MAX_VALUE
+                val scratch = projectPath == "__scratch__"
                 WorkspaceDraft(
                     id = projectPath,
-                    label = projectPath.substringAfterLast('/').ifBlank { projectPath },
+                    label = if (scratch) "Scratch" else projectPath.substringAfterLast('/').ifBlank { projectPath },
                     projectPath = projectPath,
+                    scratch = scratch,
                     sessions = ordered,
                     rank = bestRank,
                     pinned = sessions.any { it.isPinned },
@@ -662,6 +667,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
                 label = it.label,
                 projectPath = it.projectPath,
                 sessions = it.sessions,
+                scratch = it.scratch,
                 collapsed = it.collapsed,
             )
         }
@@ -687,6 +693,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         val label: String,
         val projectPath: String,
         val sessions: List<Session>,
+        val scratch: Boolean,
         val rank: Int,
         val pinned: Boolean,
         val latest: Long,

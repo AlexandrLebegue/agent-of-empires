@@ -162,6 +162,7 @@ fun SessionDetailScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -663,6 +664,7 @@ private fun ToolRow(item: ToolDisplay) {
             } else {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
             },
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ),
     ) {
         Column(Modifier.padding(10.dp)) {
@@ -1276,6 +1278,7 @@ private fun QueueStrip(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 3.dp),

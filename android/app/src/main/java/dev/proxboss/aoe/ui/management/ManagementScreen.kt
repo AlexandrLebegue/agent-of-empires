@@ -104,6 +104,7 @@ fun ManagementScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
@@ -508,6 +509,7 @@ private fun SkillsTab(
                         .clickable { onOpen(skill) },
                     shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
                 ) {
                     Column(Modifier.padding(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -708,6 +710,7 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(10.dp)) {

@@ -74,6 +74,7 @@ fun DiffScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -264,6 +265,7 @@ private fun DiffFileList(
                     .clickable { onOpen(file) },
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                 shape = MaterialTheme.shapes.small,
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

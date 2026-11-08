@@ -59,6 +59,7 @@ object SessionMapper {
             acpCapable = row.optBoolean("acp_capable", false),
             acpWorkerState = row.stringOrNull("acp_worker_state"),
             hasTerminal = row.optBoolean("has_terminal", false),
+            scratch = row.optBoolean("scratch", false),
             lastAccessedAt = TimeFormat.parseInstant(row.stringOrNull("last_accessed_at")),
             idleEnteredAt = TimeFormat.parseInstant(row.stringOrNull("idle_entered_at")),
             createdAt = TimeFormat.parseInstant(row.stringOrNull("created_at")),
