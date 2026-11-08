@@ -61,7 +61,9 @@ dans les logs de l'application.
 
 ### Sessions
 
-- Liste par projets/workspaces, sections repliables persistées
+- Accueil avec en-tête type Reddit (logo cliquable + recherche pilule fixe)
+- Liste par projets sous forme de cartes repliables avec état agrégé
+- Favoris regroupés dans une carte dédiée en tête
 - Gestion séparée des groupes AoE (création, renommage, suppression)
 - Filtres Actives/Favoris/Toutes/Archivées/Corbeille
 - Recherche locale et recherche conversationnelle (`/api/sessions/search`)
