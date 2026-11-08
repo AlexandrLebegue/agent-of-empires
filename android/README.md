@@ -61,7 +61,8 @@ dans les logs de l'application.
 
 ### Sessions
 
-- Liste par groupes AoE, sections repliables persistées
+- Liste par projets/workspaces, sections repliables persistées
+- Gestion séparée des groupes AoE (création, renommage, suppression)
 - Filtres Actives/Favoris/Toutes/Archivées/Corbeille
 - Recherche locale et recherche conversationnelle (`/api/sessions/search`)
 - Compteurs actives/en attente/non lues, indicateur non-lu
@@ -69,7 +70,8 @@ dans les logs de l'application.
   structurée/terminal, YOLO, groupe, worktree et branche, progression, confiance
   des hooks
 - Actions : renommer, pin, favori, archive, snooze, couleur, mute, non-lu,
-  stop/start/restart, corbeille/restauration, déplacement entre groupes
+  stop/start/restart, corbeille/restauration avec confirmation et annulation,
+  déplacement entre groupes
 - Rollback optimiste en cas d'échec
 - Groupes : création, renommage, suppression, déplacement de sessions
 - Ordre manuel des sessions (`/api/reorder`) et ordre des workspaces
@@ -80,7 +82,7 @@ dans les logs de l'application.
 - Transcript live `/sessions/{id}/acp/ws` avec repli terminal
 - Markdown minimal, blocs d'outils repliables, diffs compactes, sélection/copie
 - Prompt streaming, file d'attente (envoi, édition, suppression, vidage)
-- Pièces jointes : collage d'image (`paste-image`) et texte long
+- Pièces jointes : collage d'image (`paste-image`), composer multi-lignes
 - Modèle, effort, modes de l'agent, changement d'agent ACP
 - Approbations Accepter/Toujours/Refuser
 - Bascule vue structurée/terminal pour une même session

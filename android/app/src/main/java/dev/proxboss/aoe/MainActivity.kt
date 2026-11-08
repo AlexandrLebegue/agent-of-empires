@@ -46,6 +46,7 @@ import dev.proxboss.aoe.ui.settings.SettingsScreen
 import dev.proxboss.aoe.ui.settings.SettingsViewModel
 import dev.proxboss.aoe.ui.settings.SetupScreen
 import dev.proxboss.aoe.ui.theme.AoETheme
+import dev.proxboss.aoe.ui.theme.SpaceBackground
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,7 +67,9 @@ class MainActivity : ComponentActivity() {
                 }
             } else {
                 AoETheme(settings.theme) {
-                    AoEApp(container, settings)
+                    SpaceBackground {
+                        AoEApp(container, settings)
+                    }
                 }
             }
         }

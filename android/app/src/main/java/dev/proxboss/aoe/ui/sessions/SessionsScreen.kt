@@ -1,5 +1,6 @@
 package dev.proxboss.aoe.ui.sessions
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,18 +48,22 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -65,6 +71,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -75,9 +82,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,6 +99,7 @@ import dev.proxboss.aoe.model.SessionFilter
 import dev.proxboss.aoe.model.SessionStatus
 import dev.proxboss.aoe.ui.common.StatusDot
 import dev.proxboss.aoe.ui.common.StatusPill
+import dev.proxboss.aoe.ui.theme.AoEPalette
 import dev.proxboss.aoe.util.TimeFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,39 +123,91 @@ fun SessionsScreen(
     var createGroupOpen by remember { mutableStateOf(false) }
     var workspaceOrderOpen by remember { mutableStateOf(false) }
     var mainMenuOpen by remember { mutableStateOf(false) }
+    var groupsManagerOpen by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.onResume()
     }
 
-    LaunchedEffect(ui.message) {
-        ui.message?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearMessage()
+    LaunchedEffect(ui.message, ui.undoTrashSession) {
+        ui.message?.let { message ->
+            val hasUndo = ui.undoTrashSession != null && message.contains("corbeille", ignoreCase = true)
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = if (hasUndo) "Annuler" else null,
+                duration = if (hasUndo) SnackbarDuration.Long else SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoTrash()
+            } else {
+                viewModel.dismissUndo()
+                viewModel.clearMessage()
+            }
         }
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            FloatingActionButton(onClick = onCreateSession) {
-                Icon(Icons.Default.Add, contentDescription = "Nouvelle session")
-            }
+            ExtendedFloatingActionButton(
+                onClick = onCreateSession,
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Nouvelle session", fontWeight = FontWeight.SemiBold) },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
         },
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 title = {
-                    Column {
-                        Text("Sessions")
-                        Text(
-                            when {
-                                ui.live -> "Temps réel connecté"
-                                ui.offline -> "Serveur injoignable"
-                                else -> "Rafraîchissement périodique"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.secondary,
+                                        ),
+                                    ),
+                                    RoundedCornerShape(12.dp),
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "A",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontWeight = FontWeight.Black,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "AGENT OF EMPIRES",
+                                style = MaterialTheme.typography.labelSmall,
+                                letterSpacing = 1.6.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "Sessions",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                when {
+                                    ui.live -> "Temps réel connecté"
+                                    ui.offline -> "Serveur injoignable"
+                                    else -> "Rafraîchissement périodique"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -174,6 +236,13 @@ fun SessionsScreen(
                                 },
                             )
                             DropdownMenuItem(
+                                text = { Text("Gérer les groupes") },
+                                onClick = {
+                                    mainMenuOpen = false
+                                    groupsManagerOpen = true
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Ordre des workspaces") },
                                 onClick = {
                                     mainMenuOpen = false
@@ -196,8 +265,15 @@ fun SessionsScreen(
                 onValueChange = viewModel::setQuery,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
+                    focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                ),
                 placeholder = { Text("Rechercher une session ou une conversation…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
@@ -223,6 +299,19 @@ fun SessionsScreen(
                         selected = ui.filter == filter,
                         onClick = { viewModel.setFilter(filter) },
                         label = { Text(filter.labelFr) },
+                        shape = RoundedCornerShape(50),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = ui.filter == filter,
+                            borderColor = MaterialTheme.colorScheme.outlineVariant,
+                            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                        ),
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                            selectedLabelColor = MaterialTheme.colorScheme.primary,
+                        ),
                     )
                 }
             }
@@ -251,7 +340,7 @@ fun SessionsScreen(
 
             PullToRefreshBox(
                 isRefreshing = ui.refreshing,
-                onRefresh = { viewModel.refresh() },
+                onRefresh = { viewModel.refresh(showSpinner = true) },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -306,7 +395,7 @@ fun SessionsScreen(
                         item { HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp)) }
                     }
 
-                    if (ui.groups.isEmpty() && !ui.loading) {
+                    if (ui.workspaces.isEmpty() && !ui.loading) {
                         item {
                             EmptySessions(
                                 hasQuery = ui.query.isNotBlank(),
@@ -316,17 +405,26 @@ fun SessionsScreen(
                         }
                     }
 
-                    ui.groups.forEach { group ->
-                        item(key = "group-${group.path}") {
-                            GroupHeader(
-                                group,
-                                onClick = { viewModel.toggleGroup(group.path) },
-                                onRename = { renameGroupTarget = group.path },
-                                onDelete = { deleteGroupTarget = group.path },
+                    if (ui.workspaces.isNotEmpty()) {
+                        item(key = "workspaces-title") {
+                            Text(
+                                "PROJETS",
+                                style = MaterialTheme.typography.labelSmall,
+                                letterSpacing = 2.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp, top = 12.dp),
                             )
                         }
-                        if (!group.collapsed) {
-                            items(group.sessions, key = { it.id }) { session ->
+                    }
+                    ui.workspaces.forEach { workspace ->
+                        item(key = "workspace-${workspace.id}") {
+                            WorkspaceHeader(
+                                workspace = workspace,
+                                onClick = { viewModel.toggleWorkspace(workspace.id) },
+                            )
+                        }
+                        if (!workspace.collapsed) {
+                            items(workspace.sessions, key = { it.id }) { session ->
                             SwipeableSessionRow(
                                 session = session,
                                 actions = SessionRowActions(
@@ -427,12 +525,32 @@ fun SessionsScreen(
     deleteGroupTarget?.let { path ->
         DeleteGroupDialog(
             path = path,
-            sessionCount = ui.groups.firstOrNull { it.path == path }?.sessions?.size ?: 0,
+            sessionCount = ui.groupsInfo.firstOrNull { it.path == path }?.sessionCount
+                ?: ui.groups.firstOrNull { it.path == path }?.sessions?.size
+                ?: 0,
             onDismiss = { deleteGroupTarget = null },
             onConfirm = { mode ->
                 viewModel.deleteGroup(path, mode)
                 deleteGroupTarget = null
             },
+        )
+    }
+    if (groupsManagerOpen) {
+        GroupsManagerDialog(
+            groups = ui.groups,
+            onCreate = {
+                groupsManagerOpen = false
+                createGroupOpen = true
+            },
+            onRename = { path ->
+                groupsManagerOpen = false
+                renameGroupTarget = path
+            },
+            onDelete = { path ->
+                groupsManagerOpen = false
+                deleteGroupTarget = path
+            },
+            onDismiss = { groupsManagerOpen = false },
         )
     }
     if (workspaceOrderOpen) {
@@ -447,7 +565,8 @@ fun SessionsScreen(
 @Composable
 private fun CountBadge(label: String, color: Color) {
     Surface(
-        color = color.copy(alpha = 0.15f),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.28f)),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(99.dp),
     ) {
         Text(
@@ -462,11 +581,11 @@ private fun CountBadge(label: String, color: Color) {
 @Composable
 private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
     Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
-        shape = MaterialTheme.shapes.medium,
+        shape = RoundedCornerShape(16.dp),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -493,75 +612,129 @@ private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun GroupHeader(
-    group: SessionGroupUi,
+private fun WorkspaceHeader(
+    workspace: WorkspaceUi,
     onClick: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
+            .padding(top = 14.dp, bottom = 4.dp)
+            .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            if (group.collapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
-            contentDescription = if (group.collapsed) "Déplier" else "Replier",
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(2.dp))
-        Icon(
-            Icons.Default.Folder,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            group.label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            group.sessions.size.toString(),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (group.path.isNotBlank()) {
-            Box {
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "Actions du groupe",
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Renommer le groupe") },
-                        onClick = {
-                            menuOpen = false
-                            onRename()
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Supprimer le groupe") },
-                        onClick = {
-                            menuOpen = false
-                            onDelete()
-                        },
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
+                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f),
+                        ),
+                    ),
+                    CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.Folder,
+                contentDescription = null,
+                modifier = Modifier.size(19.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    workspace.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(7.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(50),
+                ) {
+                    Text(
+                        workspace.sessions.size.toString(),
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
+            Text(
+                workspace.projectPath,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
+        Icon(
+            if (workspace.collapsed) {
+                Icons.AutoMirrored.Filled.KeyboardArrowRight
+            } else {
+                Icons.Default.KeyboardArrowDown
+            },
+            contentDescription = if (workspace.collapsed) "Déplier le projet" else "Replier le projet",
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
+}
+
+@Composable
+private fun GroupsManagerDialog(
+    groups: List<SessionGroupUi>,
+    onCreate: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val paths = groups.map { it.path }.filter { it.isNotBlank() }.distinct().sorted()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Groupes AoE") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Les groupes servent à classer les sessions. L'accueil est organisé par projet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                paths.forEach { path ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            path,
+                            modifier = Modifier.weight(1f),
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        TextButton(onClick = { onRename(path) }) { Text("Renommer") }
+                        TextButton(onClick = { onDelete(path) }) {
+                            Text("Suppr.", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                if (paths.isEmpty()) {
+                    Text("Aucun groupe défini.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onCreate) { Text("Nouveau groupe") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+    )
 }
 
 @Composable
@@ -570,8 +743,9 @@ private fun SearchHitRow(hit: SearchHit, title: String, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -678,10 +852,16 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
         session.notifyOnIdle == false &&
         session.notifyOnError == false
     val highlight = when {
-        session.isTrashed -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        session.status == SessionStatus.WAITING -> Color(0xFFF0A43A).copy(alpha = 0.13f)
-        session.status == SessionStatus.ERROR -> MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
-        else -> MaterialTheme.colorScheme.surface
+        session.isTrashed -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+        session.status == SessionStatus.WAITING -> AoEPalette.Amber.copy(alpha = 0.10f)
+        session.status == SessionStatus.ERROR -> MaterialTheme.colorScheme.error.copy(alpha = 0.09f)
+        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+    }
+    val borderColor = when {
+        session.status == SessionStatus.WAITING -> AoEPalette.Amber.copy(alpha = 0.55f)
+        session.status == SessionStatus.ERROR -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+        session.unread -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        else -> MaterialTheme.colorScheme.outlineVariant
     }
     var menuOpen by remember { mutableStateOf(false) }
     val colorDot = when (session.color) {
@@ -697,7 +877,9 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
             .fillMaxWidth()
             .alpha(if (session.isArchived) 0.7f else 1f),
         colors = CardDefaults.cardColors(containerColor = highlight),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (session.status.needsAttention) 2.dp else 0.dp),
+        border = BorderStroke(1.dp, borderColor),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(start = 12.dp, top = 9.dp, end = 4.dp, bottom = 9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -864,7 +1046,7 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Mettre à la corbeille") },
+                                text = { Text("Mettre à la corbeille", color = MaterialTheme.colorScheme.error) },
                                 onClick = {
                                     menuOpen = false
                                     actions.onTrash()
@@ -905,6 +1087,12 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 StatusPill(session.status)
+                if (!session.branch.isNullOrBlank()) {
+                    BadgeText(session.branch, MaterialTheme.colorScheme.primary)
+                }
+                if (session.groupPath.isNotBlank()) {
+                    BadgeText("#${session.groupPath}", MaterialTheme.colorScheme.secondary)
+                }
                 if (session.status == SessionStatus.WAITING) {
                     Text(
                         "Approbation requise",
@@ -950,6 +1138,23 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BadgeText(text: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(50),
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1228,7 +1433,7 @@ private fun WorkspaceOrderDialog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                workspace.label,
+                                "${workspace.label} · ${workspace.sessions.size} session(s)",
                                 modifier = Modifier.weight(1f),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,

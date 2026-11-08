@@ -15,14 +15,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.proxboss.aoe.model.SessionStatus
+import dev.proxboss.aoe.ui.theme.AoEPalette
 
 @Composable
 fun statusColor(status: SessionStatus): Color = when (status) {
-    SessionStatus.RUNNING -> MaterialTheme.colorScheme.primary
-    SessionStatus.WAITING -> Color(0xFFF0A43A)
-    SessionStatus.ERROR -> MaterialTheme.colorScheme.error
-    SessionStatus.IDLE -> Color(0xFF5FBF83)
-    SessionStatus.STARTING, SessionStatus.CREATING -> Color(0xFF8BB8FF)
+    SessionStatus.RUNNING -> AoEPalette.Cyan
+    SessionStatus.WAITING -> AoEPalette.Amber
+    SessionStatus.ERROR -> AoEPalette.Rose
+    SessionStatus.IDLE -> AoEPalette.Green
+    SessionStatus.STARTING, SessionStatus.CREATING -> AoEPalette.Violet
     SessionStatus.DELETING -> MaterialTheme.colorScheme.error
     SessionStatus.STOPPED, SessionStatus.UNKNOWN -> MaterialTheme.colorScheme.outline
 }

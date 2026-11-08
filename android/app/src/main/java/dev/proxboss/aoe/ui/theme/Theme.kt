@@ -1,34 +1,58 @@
 package dev.proxboss.aoe.ui.theme
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+object AoEPalette {
+    val Cyan = Color(0xFF67E8F9)
+    val Violet = Color(0xFFA78BFA)
+    val Amber = Color(0xFFFACC15)
+    val Green = Color(0xFF34D399)
+    val Rose = Color(0xFFFB7185)
+    val Ink = Color(0xFF050914)
+    val Panel = Color(0xFF0B1324)
+    val PanelHigh = Color(0xFF131F36)
+    val Border = Color(0xFF233452)
+    val TextMuted = Color(0xFF8FA3C4)
+}
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF8AD8C5),
-    onPrimary = Color(0xFF00382E),
-    primaryContainer = Color(0xFF0D4B40),
-    onPrimaryContainer = Color(0xFFB6F0E1),
-    secondary = Color(0xFFA9C7FF),
-    onSecondary = Color(0xFF0A2F5C),
-    tertiary = Color(0xFFF4C56A),
-    onTertiary = Color(0xFF3E2A00),
-    tertiaryContainer = Color(0xFF5A4100),
-    onTertiaryContainer = Color(0xFFFFDF9E),
-    background = Color(0xFF0C1012),
-    surface = Color(0xFF13181B),
-    surfaceVariant = Color(0xFF20282C),
-    onSurface = Color(0xFFE4EAE8),
-    onSurfaceVariant = Color(0xFFB8C4C1),
-    outline = Color(0xFF4B5A58),
-    outlineVariant = Color(0xFF2D3735),
-    error = Color(0xFFFFB4AB),
-    onError = Color(0xFF690005),
-    errorContainer = Color(0xFF5A1A16),
-    onErrorContainer = Color(0xFFFFDAD6),
+    primary = AoEPalette.Cyan,
+    onPrimary = Color(0xFF04222A),
+    primaryContainer = Color(0xFF0E3D4A),
+    onPrimaryContainer = Color(0xFFC8F7FF),
+    secondary = AoEPalette.Violet,
+    onSecondary = Color(0xFF21133E),
+    secondaryContainer = Color(0xFF34245A),
+    onSecondaryContainer = Color(0xFFE3D8FF),
+    tertiary = AoEPalette.Amber,
+    onTertiary = Color(0xFF2D2300),
+    tertiaryContainer = Color(0xFF4A3A00),
+    onTertiaryContainer = Color(0xFFFFE9A8),
+    background = AoEPalette.Ink,
+    surface = AoEPalette.Panel,
+    surfaceVariant = AoEPalette.PanelHigh,
+    onSurface = Color(0xFFE8F1FF),
+    onSurfaceVariant = AoEPalette.TextMuted,
+    outline = AoEPalette.Border,
+    outlineVariant = Color(0xFF17243B),
+    error = AoEPalette.Rose,
+    onError = Color(0xFF3A0710),
+    errorContainer = Color(0xFF3D1420),
+    onErrorContainer = Color(0xFFFFD6DC),
 )
 
 private val LightColors = lightColorScheme(
@@ -48,6 +72,47 @@ private val LightColors = lightColorScheme(
     errorContainer = Color(0xFFFFDAD6),
     onErrorContainer = Color(0xFF410002),
 )
+
+@Composable
+fun SpaceBackground(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF040710),
+                        Color(0xFF071022),
+                        Color(0xFF050914),
+                    ),
+                ),
+            ),
+    ) {
+        Box(
+            Modifier
+                .size(420.dp)
+                .align(Alignment.TopEnd)
+                .background(
+                    Brush.radialGradient(
+                        listOf(AoEPalette.Violet.copy(alpha = 0.20f), Color.Transparent),
+                    ),
+                    CircleShape,
+                ),
+        )
+        Box(
+            Modifier
+                .size(360.dp)
+                .align(Alignment.BottomStart)
+                .background(
+                    Brush.radialGradient(
+                        listOf(AoEPalette.Cyan.copy(alpha = 0.13f), Color.Transparent),
+                    ),
+                    CircleShape,
+                ),
+        )
+        content()
+    }
+}
 
 @Composable
 fun AoETheme(theme: String, content: @Composable () -> Unit) {

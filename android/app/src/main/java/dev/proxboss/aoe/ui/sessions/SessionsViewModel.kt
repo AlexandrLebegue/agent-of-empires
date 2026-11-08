@@ -33,6 +33,9 @@ enum class SessionSortMode(val labelFr: String) {
 data class WorkspaceUi(
     val id: String,
     val label: String,
+    val projectPath: String,
+    val sessions: List<Session>,
+    val collapsed: Boolean = false,
 )
 
 data class SessionGroupUi(
@@ -63,6 +66,7 @@ data class SessionsUiState(
     val unreadCount: Int = 0,
     val workspaceOrdering: List<String> = emptyList(),
     val workspaces: List<WorkspaceUi> = emptyList(),
+    val undoTrashSession: Session? = null,
 )
 
 class SessionsViewModel(application: Application) : AndroidViewModel(application) {
@@ -79,6 +83,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
     private var searchJob: Job? = null
     private var socket: WebSocket? = null
     private var reconnectAttempt = 0
+    private var refreshInFlight = false
 
     init {
         viewModelScope.launch {
@@ -103,30 +108,36 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refresh(showSpinner: Boolean = false) {
-        if (_ui.value.refreshing) return
+        if (refreshInFlight) return
+        refreshInFlight = true
         viewModelScope.launch {
             _ui.value = _ui.value.copy(
-                refreshing = true,
+                refreshing = showSpinner,
                 loading = if (showSpinner && _ui.value.sessions.isEmpty()) true else _ui.value.loading,
             )
-            when (val result = repository.refresh()) {
-                is ApiResult.Ok -> {
-                    _ui.value = _ui.value.copy(
-                        refreshing = false,
-                        loading = false,
-                        offline = false,
-                        error = null,
-                    )
-                    loadGroups()
+            try {
+                when (val result = repository.refresh()) {
+                    is ApiResult.Ok -> {
+                        _ui.value = _ui.value.copy(
+                            refreshing = false,
+                            loading = false,
+                            offline = false,
+                            error = null,
+                        )
+                        loadGroups()
+                    }
+                    is ApiResult.Err -> {
+                        _ui.value = _ui.value.copy(
+                            refreshing = false,
+                            loading = false,
+                            offline = true,
+                            error = result.message,
+                        )
+                    }
                 }
-                is ApiResult.Err -> {
-                    _ui.value = _ui.value.copy(
-                        refreshing = false,
-                        loading = false,
-                        offline = true,
-                        error = result.message,
-                    )
-                }
+            } finally {
+                _ui.value = _ui.value.copy(refreshing = false)
+                refreshInFlight = false
             }
         }
     }
@@ -135,17 +146,6 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         _ui.value = recompute(_ui.value.copy(filter = filter))
     }
 
-    fun toggleGroup(path: String) {
-        if (path.isBlank()) return
-        val collapsed = _ui.value.collapsedGroups
-        val nowCollapsed = path !in collapsed
-        val next = if (nowCollapsed) collapsed + path else collapsed - path
-        _ui.value = recompute(_ui.value.copy(collapsedGroups = next))
-        viewModelScope.launch {
-            settings.setGroupCollapsed(path, nowCollapsed)
-            repository.collapseGroup(path, nowCollapsed)
-        }
-    }
 
     fun createGroup(path: String) {
         val trimmed = path.trim().trimEnd('/')
@@ -213,8 +213,11 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
             add(target, item)
         }
         val previous = _ui.value.workspaceOrdering
-        val order = reordered.map { it.id }
-        _ui.value = recompute(_ui.value.copy(workspaceOrdering = order, workspaces = reordered))
+        val generated = reordered.flatMap { workspace ->
+            workspace.sessions.map(::workspaceIdFor)
+        }.distinct()
+        val order = generated + previous.filterNot { it in generated }
+        _ui.value = recompute(_ui.value.copy(workspaceOrdering = order))
         viewModelScope.launch {
             when (val result = repository.updateWorkspaceOrdering(order)) {
                 is ApiResult.Ok -> _ui.value = _ui.value.copy(message = "Ordre des workspaces enregistré")
@@ -226,6 +229,16 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         }
+    }
+
+    fun toggleWorkspace(id: String) {
+        if (id.isBlank()) return
+        val key = "ws:$id"
+        val collapsed = _ui.value.collapsedGroups
+        val nowCollapsed = key !in collapsed
+        val next = if (nowCollapsed) collapsed + key else collapsed - key
+        _ui.value = recompute(_ui.value.copy(collapsedGroups = next))
+        viewModelScope.launch { settings.setGroupCollapsed(key, nowCollapsed) }
     }
 
     fun toggleSortMode() {
@@ -368,12 +381,34 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun trash(session: Session) {
-        optimistic(
-            session,
-            session.copy(trashedAt = Instant.now().toString()),
-            successMessage = "Session déplacée dans la corbeille",
-            refreshAfter = true,
-        ) { repository.trash(session.id) }
+        val previous = store.session(session.id) ?: session
+        store.upsert(previous.copy(trashedAt = Instant.now().toString()))
+        _ui.value = _ui.value.copy(
+            undoTrashSession = previous,
+            message = "Session déplacée dans la corbeille",
+        )
+        viewModelScope.launch {
+            when (val result = repository.trash(session.id)) {
+                is ApiResult.Ok -> {
+                    delay(700)
+                    refresh()
+                }
+                is ApiResult.Err -> {
+                    store.upsert(previous)
+                    _ui.value = _ui.value.copy(undoTrashSession = null, message = result.message)
+                }
+            }
+        }
+    }
+
+    fun undoTrash() {
+        val previous = _ui.value.undoTrashSession ?: return
+        _ui.value = _ui.value.copy(undoTrashSession = null)
+        restore(previous)
+    }
+
+    fun dismissUndo() {
+        _ui.value = _ui.value.copy(undoTrashSession = null)
     }
 
     fun restore(session: Session) {
@@ -460,7 +495,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         pollJob?.cancel()
         pollJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(if (_ui.value.live) 20_000 else 5_000)
+                delay(if (_ui.value.live) 30_000 else 15_000)
                 refresh()
             }
         }
@@ -585,31 +620,51 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
             }
 
         val visible = state.sessions.filterNot { it.isTrashed }
-        val workspaceMap = LinkedHashMap<String, Session>()
-        for (session in visible) {
-            val repoPath = (session.mainRepoPath ?: session.projectPath).trimEnd('/')
-            val id = if (!session.branch.isNullOrBlank()) {
-                "$repoPath::${session.branch}"
-            } else {
-                "$repoPath::__session__::${session.id}"
-            }
-            workspaceMap.putIfAbsent(id, session)
-        }
         val rank = state.workspaceOrdering.withIndex().associate { it.value to it.index }
-        val workspaces = workspaceMap.entries
-            .sortedWith(
-                compareBy<Map.Entry<String, Session>> { rank[it.key] ?: Int.MAX_VALUE }
-                    .thenBy { it.value.title.lowercase() },
-            )
-            .map { (id, session) ->
-                WorkspaceUi(
-                    id = id,
-                    label = buildString {
-                        append(session.title)
-                        if (!session.branch.isNullOrBlank()) append(" · ${session.branch}")
-                    },
+        val workspaceDrafts = filtered
+            .groupBy { normalizeProjectPath(it.mainRepoPath ?: it.projectPath) }
+            .map { (projectPath, sessions) ->
+                val ordered = if (state.sortMode == SessionSortMode.MANUAL) {
+                    sessions.sortedWith(
+                        compareByDescending<Session> { it.isPinned }
+                            .thenBy { position[it.id] ?: Int.MAX_VALUE },
+                    )
+                } else {
+                    sessions.sortedWith(
+                        compareByDescending<Session> { it.isPinned }
+                            .thenByDescending { it.favorited }
+                            .thenByDescending { it.activityAt?.toEpochMilli() ?: 0L }
+                            .thenBy { it.title.lowercase() },
+                    )
+                }
+                val bestRank = sessions.minOfOrNull { rank[workspaceIdFor(it)] ?: Int.MAX_VALUE }
+                    ?: Int.MAX_VALUE
+                WorkspaceDraft(
+                    id = projectPath,
+                    label = projectPath.substringAfterLast('/').ifBlank { projectPath },
+                    projectPath = projectPath,
+                    sessions = ordered,
+                    rank = bestRank,
+                    pinned = sessions.any { it.isPinned },
+                    latest = sessions.maxOfOrNull { it.activityAt?.toEpochMilli() ?: 0L } ?: 0L,
+                    collapsed = "ws:$projectPath" in state.collapsedGroups,
                 )
             }
+            .sortedWith(
+                compareByDescending<WorkspaceDraft> { it.pinned }
+                    .thenBy { it.rank }
+                    .thenByDescending { it.latest }
+                    .thenBy { it.label.lowercase() },
+            )
+        val workspaces = workspaceDrafts.map {
+            WorkspaceUi(
+                id = it.id,
+                label = it.label,
+                projectPath = it.projectPath,
+                sessions = it.sessions,
+                collapsed = it.collapsed,
+            )
+        }
         return state.copy(
             groups = groups,
             titles = state.sessions.associate { it.id to it.title },
@@ -625,6 +680,31 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
             },
             unreadCount = visible.count { it.unread },
         )
+    }
+
+    private data class WorkspaceDraft(
+        val id: String,
+        val label: String,
+        val projectPath: String,
+        val sessions: List<Session>,
+        val rank: Int,
+        val pinned: Boolean,
+        val latest: Long,
+        val collapsed: Boolean,
+    )
+
+    private fun normalizeProjectPath(path: String): String {
+        val trimmed = path.trimEnd('/')
+        return trimmed.ifBlank { "/" }
+    }
+
+    private fun workspaceIdFor(session: Session): String {
+        val repoPath = normalizeProjectPath(session.mainRepoPath ?: session.projectPath)
+        return if (!session.branch.isNullOrBlank()) {
+            "$repoPath::${session.branch}"
+        } else {
+            "$repoPath::__session__::${session.id}"
+        }
     }
 
     companion object {

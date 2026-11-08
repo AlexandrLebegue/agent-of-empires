@@ -54,6 +54,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -115,7 +116,6 @@ fun SessionDetailScreen(
     var showSwitchView by remember { mutableStateOf(false) }
     var composer by rememberSaveable { mutableStateOf("") }
     var queueEditTarget by remember { mutableStateOf<QueuedPrompt?>(null) }
-    var showLongText by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val terminalScroll = rememberScrollState()
     val context = LocalContext.current
@@ -161,8 +161,10 @@ fun SessionDetailScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 title = {
                     Column {
                         Text(
@@ -351,7 +353,6 @@ fun SessionDetailScreen(
                     }
                 },
                 onAttachImage = { imagePicker.launch("image/*") },
-                onLongText = { showLongText = true },
                 viewModel = viewModel,
             )
         }
@@ -364,17 +365,6 @@ fun SessionDetailScreen(
             onConfirm = { text ->
                 viewModel.editQueuedPrompt(prompt, text)
                 queueEditTarget = null
-            },
-        )
-    }
-
-    if (showLongText) {
-        LongTextDialog(
-            initial = composer,
-            onDismiss = { showLongText = false },
-            onConfirm = { text ->
-                composer = text
-                showLongText = false
             },
         )
     }
@@ -916,7 +906,6 @@ private fun ComposerArea(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttachImage: () -> Unit,
-    onLongText: () -> Unit,
     viewModel: SessionDetailViewModel,
 ) {
     Surface(tonalElevation = 4.dp) {
@@ -967,7 +956,6 @@ private fun ComposerArea(
                         Text("Image")
                     }
                 }
-                OutlinedButton(onClick = onLongText) { Text("Texte long") }
                 if (ui.control.turnActive) {
                     OutlinedButton(
                         onClick = viewModel::cancelTurn,
@@ -1369,27 +1357,3 @@ private fun QueueEditDialog(
     )
 }
 
-@Composable
-private fun LongTextDialog(
-    initial: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var text by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Texte long") },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.heightIn(min = 220.dp, max = 420.dp),
-                label = { Text("Texte à envoyer") },
-            )
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(text) }) { Text("Utiliser") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
-    )
-}

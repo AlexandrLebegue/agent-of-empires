@@ -222,14 +222,6 @@ class SessionRepository(
         }
     }
 
-    suspend fun collapseGroup(path: String, collapsed: Boolean, profile: String = "main") {
-        if (path.isBlank()) return
-        val body = JSONObject()
-            .put("group", JSONObject().put("profile", profile).put("path", path))
-            .put("collapsed", collapsed)
-            .toString()
-        runCatching { client.patch("/api/groups/collapse", body) }
-    }
 
     suspend fun moveSessionToGroup(id: String, group: String): ApiResult<Unit> =
         patchMutation(id, "/api/sessions/$id/group", JSONObject().put("group", group).toString())
