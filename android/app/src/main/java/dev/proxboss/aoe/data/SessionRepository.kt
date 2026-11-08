@@ -580,6 +580,22 @@ class SessionRepository(
         return client.get("/api/sessions/$sessionId/file$query").map { DiffMapper.parseSessionFile(it) }
     }
 
+    suspend fun replayRowsBefore(
+        sessionId: String,
+        before: Long,
+        limit: Int,
+    ): ApiResult<ReplayPage> =
+        client.get("/api/sessions/$sessionId/acp/replay?view=rows&before=$before&limit=$limit")
+            .map { ReplayMapper.parsePage(it) }
+
+    suspend fun replayRowsSince(
+        sessionId: String,
+        since: Long,
+        limit: Int,
+    ): ApiResult<ReplayPage> =
+        client.get("/api/sessions/$sessionId/acp/replay?view=rows&since=$since&limit=$limit")
+            .map { ReplayMapper.parsePage(it) }
+
     suspend fun recordModel(sessionId: String, model: String) {
         if (model.isBlank()) return
         store.setModel(sessionId, model)

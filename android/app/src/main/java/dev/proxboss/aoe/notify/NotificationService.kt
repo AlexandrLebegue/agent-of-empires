@@ -217,7 +217,7 @@ class NotificationService : Service() {
         val deferred = CompletableDeferred<Pair<String, String>?>()
         val socket = container.client.openAcpSocket(sessionId, since = 0, listener = object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
-                val frame = AcpFrameParser.parse(text)
+                val frame = AcpFrameParser.parseLive(text)
                 if (frame is AcpFrame.ReducedState) {
                     val approval = frame.payload.pendingApprovals?.firstOrNull()
                     deferred.complete(

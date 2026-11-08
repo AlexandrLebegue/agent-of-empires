@@ -62,6 +62,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -149,9 +151,18 @@ fun SessionDetailScreen(
         viewModel.onResume()
     }
 
-    LaunchedEffect(ui.rows) {
+    LaunchedEffect(ui.rows.lastOrNull()?.key) {
         if (ui.rows.isNotEmpty()) {
             listState.animateScrollToItem(ui.rows.lastIndex)
+        }
+    }
+    var previousFirstVisible by remember { mutableIntStateOf(0) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
+            if (index <= 1 && previousFirstVisible > 1) {
+                viewModel.loadOlder()
+            }
+            previousFirstVisible = index
         }
     }
     LaunchedEffect(ui.terminalText) {
@@ -253,14 +264,32 @@ fun SessionDetailScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            Text("Aucun message dans le transcript.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (ui.error == null) {
-                                Spacer(Modifier.height(12.dp))
-                                OutlinedButton(onClick = viewModel::retryConnection) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Reconnecter")
-                                }
+                            Text(
+                                if (ui.error != null) {
+                                    "Impossible d'afficher l'historique."
+                                } else {
+                                    "Aucun message dans le transcript."
+                                },
+                                color = if (ui.error != null) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            ui.error?.let { error ->
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    error,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            OutlinedButton(onClick = viewModel::retryConnection) {
+                                Icon(Icons.Default.Refresh, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Reconnecter")
                             }
                         }
                     }
@@ -276,6 +305,26 @@ fun SessionDetailScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            if (ui.loadingOlder) {
+                                item(key = "older-loading") {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
+                                }
+                            } else if (ui.hasOlder) {
+                                item(key = "older-more") {
+                                    TextButton(
+                                        onClick = viewModel::loadOlder,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Charger les messages plus anciens") }
+                                }
+                            }
                             items(ui.rows, key = { it.key }) { item -> DisplayRow(item) }
                         }
                     }

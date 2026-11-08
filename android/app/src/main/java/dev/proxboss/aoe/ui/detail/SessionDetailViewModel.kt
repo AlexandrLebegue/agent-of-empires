@@ -1,6 +1,7 @@
 package dev.proxboss.aoe.ui.detail
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -8,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import dev.proxboss.aoe.AoEApplication
 import dev.proxboss.aoe.data.AcpFrame
 import dev.proxboss.aoe.data.AcpFrameParser
+import dev.proxboss.aoe.data.ReplayPagination
 import dev.proxboss.aoe.data.TranscriptBuilder
 import dev.proxboss.aoe.model.AcpAgent
 import dev.proxboss.aoe.model.AcpControl
@@ -15,6 +17,7 @@ import dev.proxboss.aoe.model.Approval
 import dev.proxboss.aoe.model.DisplayItem
 import dev.proxboss.aoe.model.QueuedPrompt
 import dev.proxboss.aoe.model.Session
+import dev.proxboss.aoe.model.TranscriptDelta
 import dev.proxboss.aoe.model.TranscriptDisplay
 import dev.proxboss.aoe.net.ApiResult
 import dev.proxboss.aoe.util.Ansi
@@ -60,6 +63,8 @@ data class SessionDetailUiState(
     val queueLoading: Boolean = false,
     val imageUploading: Boolean = false,
     val viewSwitching: Boolean = false,
+    val hasOlder: Boolean = false,
+    val loadingOlder: Boolean = false,
 )
 
 class SessionDetailViewModel(
@@ -82,6 +87,12 @@ class SessionDetailViewModel(
     private var terminalFailed = false
     private var markedRead = false
     private var reconnectAttempt = 0
+    private var oldestCursor: Long? = null
+    private var lastLiveSeq: Long = 0L
+    private var historyLoaded = false
+    private var livePollJob: Job? = null
+    private var gapBackfillJob: Job? = null
+    private var pendingGapFrom: Long? = null
 
     init {
         viewModelScope.launch {
@@ -131,7 +142,11 @@ class SessionDetailViewModel(
         if (!_ui.value.connected && !_ui.value.connecting &&
             _ui.value.switchingAgent == null && _ui.value.sessionAction == null
         ) {
-            retryConnection()
+            if (builder.rows().isNotEmpty()) {
+                startLivePolling()
+            } else {
+                retryConnection()
+            }
         }
     }
 
@@ -335,6 +350,7 @@ class SessionDetailViewModel(
 
     fun switchToTerminal() {
         if (_ui.value.viewSwitching) return
+        stopLivePolling()
         _ui.value = _ui.value.copy(viewSwitching = true, error = null)
         intentionallyClosed = true
         socket?.close(1000, "switch view")
@@ -364,6 +380,7 @@ class SessionDetailViewModel(
 
     fun switchToStructured() {
         if (_ui.value.viewSwitching) return
+        stopLivePolling()
         _ui.value = _ui.value.copy(viewSwitching = true, error = null)
         intentionallyClosed = true
         socket?.close(1000, "switch view")
@@ -521,24 +538,179 @@ class SessionDetailViewModel(
 
     private fun startAcp() {
         closeSocket()
+        stopLivePolling()
         intentionallyClosed = false
+        historyLoaded = false
+        oldestCursor = null
+        lastLiveSeq = 0L
         _ui.value = _ui.value.copy(
             transport = DetailTransport.ACP,
             connecting = true,
             connected = false,
             error = null,
+            notice = null,
+            hasOlder = false,
+            loadingOlder = false,
         )
-        val ws = container.client.openAcpSocket(sessionId, since = 0, listener = AcpListener())
+        viewModelScope.launch { loadHistoryAndConnect() }
+    }
+
+    private suspend fun loadHistoryAndConnect() {
+        stopLivePolling()
+        val pages = ArrayList<dev.proxboss.aoe.data.ReplayPage>()
+        var before = Long.MAX_VALUE
+        var failure: String? = null
+        var loadedRows = 0
+        for (attempt in 0 until MAX_INITIAL_PAGES) {
+            when (val result = repository.replayRowsBefore(sessionId, before, HISTORY_PAGE_SIZE)) {
+                is ApiResult.Ok -> {
+                    val page = result.value
+                    pages.add(page)
+                    loadedRows += page.rows.size
+                    val next = ReplayPagination.nextBefore(before, page)
+                    if (next == null || loadedRows >= MIN_INITIAL_ROWS) break
+                    before = next
+                }
+                is ApiResult.Err -> {
+                    failure = result.message
+                    break
+                }
+            }
+        }
+        if (pages.isEmpty()) {
+            _ui.value = _ui.value.copy(
+                connecting = false,
+                connected = false,
+                error = "Impossible de charger l'historique : ${failure ?: "réponse vide"}",
+            )
+            return
+        }
+        val tail = pages.first()
+        val oldest = pages.last()
+        val merged = ArrayList<dev.proxboss.aoe.model.TranscriptRow>()
+        pages.asReversed().forEach { page ->
+            page.rows.forEach { row ->
+                if (merged.none { it.id == row.id }) merged.add(row)
+            }
+        }
+        builder.snapshot(merged)
+        oldestCursor = oldest.nextCursor
+        lastLiveSeq = tail.highestSeq
+        historyLoaded = true
+        _ui.value = _ui.value.copy(
+            connecting = true,
+            connected = false,
+            error = null,
+            hasOlder = oldest.hasMore && oldestCursor != null,
+            loadingOlder = false,
+        )
+        publishRows()
+        connectLiveSocket()
+    }
+
+    private fun connectLiveSocket() {
+        val ws = container.client.openAcpSocket(sessionId, since = lastLiveSeq, listener = AcpListener())
         if (ws == null) {
-            acpFailed = true
-            fallbackOrRetry("Connexion ACP impossible")
+            startLivePolling("Flux temps réel indisponible — historique affiché, actualisation périodique.")
             return
         }
         socket = ws
     }
 
+    fun loadOlder() {
+        if (_ui.value.loadingOlder || !_ui.value.hasOlder) return
+        var cursor = oldestCursor ?: return
+        _ui.value = _ui.value.copy(loadingOlder = true, error = null)
+        viewModelScope.launch {
+            val collected = ArrayList<dev.proxboss.aoe.model.TranscriptRow>()
+            var hasMore = false
+            var failure: String? = null
+            for (attempt in 0 until 3) {
+                when (val result = repository.replayRowsBefore(sessionId, cursor, HISTORY_PAGE_SIZE)) {
+                    is ApiResult.Ok -> {
+                        val page = result.value
+                        val previous = ArrayList<dev.proxboss.aoe.model.TranscriptRow>()
+                        page.rows.forEach { previous.add(it) }
+                        previous.addAll(collected)
+                        collected.clear()
+                        collected.addAll(previous)
+                        val next = ReplayPagination.nextBefore(cursor, page)
+                        hasMore = next != null
+                        if (next != null) cursor = next
+                        if (collected.isNotEmpty() || !hasMore) break
+                    }
+                    is ApiResult.Err -> {
+                        failure = result.message
+                        break
+                    }
+                }
+            }
+            if (failure != null) {
+                _ui.value = _ui.value.copy(
+                    loadingOlder = false,
+                    error = "Impossible de charger les messages plus anciens : $failure",
+                )
+                return@launch
+            }
+            builder.prependOlder(collected)
+            oldestCursor = cursor
+            _ui.value = _ui.value.copy(loadingOlder = false, hasOlder = hasMore)
+            publishRows()
+        }
+    }
+
+    private fun startLivePolling(notice: String? = null) {
+        stopLivePolling()
+        _ui.value = _ui.value.copy(
+            connected = false,
+            connecting = false,
+            notice = notice ?: _ui.value.notice,
+        )
+        livePollJob = viewModelScope.launch {
+            while (isActive) {
+                delay(LIVE_POLL_INTERVAL_MS)
+                backfillForward()
+            }
+        }
+    }
+
+    private fun stopLivePolling() {
+        livePollJob?.cancel()
+        livePollJob = null
+    }
+
+    private suspend fun backfillForward(from: Long = lastLiveSeq) {
+        if (!historyLoaded) return
+        when (val result = repository.replayRowsSince(sessionId, from, LIVE_REPLAY_LIMIT)) {
+            is ApiResult.Ok -> {
+                val page = result.value
+                if (page.lost) {
+                    _ui.value = _ui.value.copy(notice = "Historique incomplet côté serveur, rechargement…")
+                    loadHistoryAndConnect()
+                    return
+                }
+                page.rows.forEach { row -> builder.apply(TranscriptDelta.Append(row)) }
+                if (page.highestSeq > lastLiveSeq) lastLiveSeq = page.highestSeq
+                publishRows()
+            }
+            is ApiResult.Err -> Unit
+        }
+    }
+
+    private fun scheduleGapBackfill(from: Long) {
+        if (pendingGapFrom == null || from < pendingGapFrom!!) pendingGapFrom = from
+        if (gapBackfillJob?.isActive == true) return
+        gapBackfillJob = viewModelScope.launch {
+            delay(1_200)
+            val start = pendingGapFrom ?: lastLiveSeq
+            pendingGapFrom = null
+            backfillForward(start)
+        }
+    }
+
     private fun startTerminal() {
         closeSocket()
+        stopLivePolling()
         intentionallyClosed = false
         _ui.value = _ui.value.copy(
             transport = DetailTransport.TERMINAL,
@@ -595,32 +767,49 @@ class SessionDetailViewModel(
         override fun onOpen(webSocket: WebSocket, response: Response) {
             if (socket !== webSocket) return
             reconnectAttempt = 0
+            stopLivePolling()
             _ui.value = _ui.value.copy(connecting = false, connected = true, error = null)
             loadQueue()
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             if (socket !== webSocket) return
-            val frame = AcpFrameParser.parse(text) ?: return
+            if (text.length > AcpFrameParser.MAX_WS_FRAME_CHARS) {
+                Log.w(
+                    "AoeAcp",
+                    "Ignoring oversized live frame (${text.length} chars); history comes from replay",
+                )
+                return
+            }
+            val frame = AcpFrameParser.parseLive(text) ?: return
             viewModelScope.launch(Dispatchers.Main.immediate) { handleAcpFrame(frame) }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             if (socket !== webSocket) return
+            socket = null
             acpFailed = true
-            viewModelScope.launch(Dispatchers.Main.immediate) {
-                fallbackOrRetry("Connexion au transcript interrompue")
-            }
+            viewModelScope.launch(Dispatchers.Main.immediate) { handleLiveFailure() }
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             if (socket !== webSocket || intentionallyClosed) return
+            socket = null
             acpFailed = true
-            viewModelScope.launch(Dispatchers.Main.immediate) {
-                fallbackOrRetry(
-                    if (code == 1001) "Serveur en cours d'arrêt" else "Transcript déconnecté",
-                )
-            }
+            viewModelScope.launch(Dispatchers.Main.immediate) { handleLiveFailure() }
+        }
+    }
+
+    private fun handleLiveFailure() {
+        if (historyLoaded) {
+            startLivePolling("Flux temps réel interrompu — historique affiché, actualisation périodique.")
+        } else {
+            _ui.value = _ui.value.copy(
+                connecting = false,
+                connected = false,
+                error = "Connexion au transcript interrompue",
+            )
+            scheduleRetry()
         }
     }
 
@@ -629,6 +818,7 @@ class SessionDetailViewModel(
             AcpFrame.Heartbeat -> Unit
             AcpFrame.Lagged -> {
                 _ui.value = _ui.value.copy(notice = "Flux ACP en retard, resynchronisation…")
+                scheduleGapBackfill(lastLiveSeq)
             }
             is AcpFrame.ReducedState -> {
                 val payload = frame.payload
@@ -640,12 +830,12 @@ class SessionDetailViewModel(
                 }
                 publishRows()
             }
-            is AcpFrame.TranscriptSnapshot -> {
-                builder.snapshot(frame.rows)
-                publishRows()
-            }
+            is AcpFrame.TranscriptSnapshot -> Unit
             is AcpFrame.Delta -> {
+                if (frame.seq <= lastLiveSeq) return
+                if (frame.seq > lastLiveSeq + 1) scheduleGapBackfill(lastLiveSeq)
                 builder.apply(frame.delta)
+                lastLiveSeq = maxOf(lastLiveSeq, frame.seq)
                 publishRows()
             }
         }
@@ -699,9 +889,19 @@ class SessionDetailViewModel(
     override fun onCleared() {
         intentionallyClosed = true
         retryJob?.cancel()
+        stopLivePolling()
+        gapBackfillJob?.cancel()
         socket?.close(1000, "screen closed")
         socket = null
         super.onCleared()
+    }
+
+    companion object {
+        private const val HISTORY_PAGE_SIZE = 200
+        private const val MAX_INITIAL_PAGES = 4
+        private const val MIN_INITIAL_ROWS = 40
+        private const val LIVE_REPLAY_LIMIT = 500
+        private const val LIVE_POLL_INTERVAL_MS = 2_500L
     }
 
     class Factory(

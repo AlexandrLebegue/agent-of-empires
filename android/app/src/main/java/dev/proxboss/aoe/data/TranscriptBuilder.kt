@@ -4,7 +4,7 @@ import dev.proxboss.aoe.model.TranscriptDelta
 import dev.proxboss.aoe.model.TranscriptKind
 import dev.proxboss.aoe.model.TranscriptRow
 
-class TranscriptBuilder(private val maxRows: Int = 2_000) {
+class TranscriptBuilder(private val maxRows: Int = 5_000) {
     private val rows = ArrayList<TranscriptRow>()
     private val indexes = HashMap<String, Int>()
     private val optimistic = ArrayList<TranscriptRow>()
@@ -14,6 +14,17 @@ class TranscriptBuilder(private val maxRows: Int = 2_000) {
         indexes.clear()
         newRows.forEach(::appendInternal)
         clearOptimisticIfPromptLanded()
+    }
+
+    fun prependOlder(older: List<TranscriptRow>) {
+        val unique = older.filter { indexes[it.id] == null }
+        if (unique.isEmpty()) return
+        rows.addAll(0, unique)
+        reindex()
+        if (rows.size > maxRows) {
+            repeat(rows.size - maxRows) { rows.removeAt(0) }
+            reindex()
+        }
     }
 
     fun append(row: TranscriptRow) {
@@ -75,6 +86,11 @@ class TranscriptBuilder(private val maxRows: Int = 2_000) {
 
     fun size(): Int = rows.size
 
+    private fun reindex() {
+        indexes.clear()
+        rows.forEachIndexed { index, row -> indexes[row.id] = index }
+    }
+
     private fun appendInternal(row: TranscriptRow) {
         val existing = indexes[row.id]
         if (existing != null && existing in rows.indices) {
@@ -86,8 +102,7 @@ class TranscriptBuilder(private val maxRows: Int = 2_000) {
         if (rows.size > maxRows) {
             val drop = rows.size - maxRows
             repeat(drop) { rows.removeAt(0) }
-            indexes.clear()
-            rows.forEachIndexed { index, item -> indexes[item.id] = index }
+            reindex()
         }
     }
 

@@ -79,6 +79,7 @@ dans les logs de l'application.
 
 ### Session structurée (ACP)
 
+- Historique chargé par pages via `/acp/replay?view=rows`, live WS à partir du dernier seq
 - Transcript live `/sessions/{id}/acp/ws` avec repli terminal
 - Markdown minimal, blocs d'outils repliables, diffs compactes, sélection/copie
 - Prompt streaming, file d'attente (envoi, édition, suppression, vidage)

@@ -20,7 +20,7 @@ sealed interface AcpFrame {
     data object Lagged : AcpFrame
     data class ReducedState(val payload: ReducedStatePayload) : AcpFrame
     data class TranscriptSnapshot(val rows: List<TranscriptRow>) : AcpFrame
-    data class Delta(val delta: TranscriptDelta) : AcpFrame
+    data class Delta(val seq: Long, val delta: TranscriptDelta) : AcpFrame
 }
 
 /**
@@ -58,6 +58,19 @@ data class ReducedStatePayload(
 
 object AcpFrameParser {
     private const val MAX_SNAPSHOT_ROWS = 800
+    const val MAX_WS_FRAME_CHARS = 512 * 1024
+
+    /**
+     * Live sockets never feed the history: it comes from the paginated replay.
+     * Ignore oversized frames and snapshots so a multi-megabyte transcript
+     * cannot stall or OOM the UI.
+     */
+    fun parseLive(text: String, maxChars: Int = MAX_WS_FRAME_CHARS): AcpFrame? {
+        if (text.length > maxChars) return null
+        val frame = parse(text) ?: return null
+        if (frame is AcpFrame.TranscriptSnapshot) return null
+        return frame
+    }
 
     fun parse(text: String): AcpFrame? {
         // Snapshot frames can carry several megabytes of history. Their kind is
@@ -75,7 +88,7 @@ object AcpFrameParser {
                 AcpFrame.ReducedState(parseReducedState(state, root.optJSONArray("unchanged")))
             }
             "transcript_delta" -> root.optJSONObject("delta")?.let { delta ->
-                parseDelta(delta)?.let(AcpFrame::Delta)
+                parseDelta(delta)?.let { AcpFrame.Delta(root.optLong("seq", 0L), it) }
             }
             else -> null
         }
