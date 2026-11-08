@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
@@ -88,14 +90,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.proxboss.aoe.R
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -118,7 +123,6 @@ fun SessionsScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val keyboard = LocalSoftwareKeyboardController.current
     var renameTarget by remember { mutableStateOf<Session?>(null) }
     var snoozeTarget by remember { mutableStateOf<Session?>(null) }
     var colorTarget by remember { mutableStateOf<Session?>(null) }
@@ -128,7 +132,6 @@ fun SessionsScreen(
     var deleteGroupTarget by remember { mutableStateOf<String?>(null) }
     var createGroupOpen by remember { mutableStateOf(false) }
     var workspaceOrderOpen by remember { mutableStateOf(false) }
-    var mainMenuOpen by remember { mutableStateOf(false) }
     var groupsManagerOpen by remember { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -177,105 +180,16 @@ fun SessionsScreen(
             }
         },
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.secondary,
-                                        ),
-                                    ),
-                                    RoundedCornerShape(12.dp),
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                "A",
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                fontWeight = FontWeight.Black,
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                "AGENT OF EMPIRES",
-                                style = MaterialTheme.typography.labelSmall,
-                                letterSpacing = 1.1.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                            Text(
-                                "Sessions",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                when {
-                                    ui.live -> "Temps réel connecté"
-                                    ui.offline -> "Serveur injoignable"
-                                    else -> "Rafraîchissement périodique"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Réglages")
-                    }
-                    Box {
-                        IconButton(onClick = { mainMenuOpen = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Plus d'actions")
-                        }
-                        DropdownMenu(expanded = mainMenuOpen, onDismissRequest = { mainMenuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Rafraîchir") },
-                                onClick = {
-                                    mainMenuOpen = false
-                                    viewModel.refresh(showSpinner = true)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Tri : ${ui.sortMode.labelFr}") },
-                                onClick = {
-                                    mainMenuOpen = false
-                                    viewModel.toggleSortMode()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Nouveau groupe") },
-                                onClick = {
-                                    mainMenuOpen = false
-                                    createGroupOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Gérer les groupes") },
-                                onClick = {
-                                    mainMenuOpen = false
-                                    groupsManagerOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Ordre des workspaces") },
-                                onClick = {
-                                    mainMenuOpen = false
-                                    workspaceOrderOpen = true
-                                },
-                            )
-                        }
-                    }
-                },
+            SessionsHeader(
+                query = ui.query,
+                onQueryChange = viewModel::setQuery,
+                sortLabel = ui.sortMode.labelFr,
+                onSettings = onOpenSettings,
+                onRefresh = { viewModel.refresh(showSpinner = true) },
+                onToggleSort = viewModel::toggleSortMode,
+                onCreateGroup = { createGroupOpen = true },
+                onManageGroups = { groupsManagerOpen = true },
+                onWorkspaceOrder = { workspaceOrderOpen = true },
             )
         },
     ) { padding ->
@@ -284,33 +198,6 @@ fun SessionsScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            OutlinedTextField(
-                value = ui.query,
-                onValueChange = viewModel::setQuery,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
-                    focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                ),
-                placeholder = { Text("Rechercher une session…") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (ui.query.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setQuery("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Effacer")
-                        }
-                    }
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-            )
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -677,6 +564,174 @@ private fun SkeletonBlock() {
     }
 }
 
+
+@Composable
+private fun SessionsHeader(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sortLabel: String,
+    onSettings: () -> Unit,
+    onRefresh: () -> Unit,
+    onToggleSort: () -> Unit,
+    onCreateGroup: () -> Unit,
+    onManageGroups: () -> Unit,
+    onWorkspaceOrder: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Surface(color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.secondary,
+                                ),
+                            ),
+                            RoundedCornerShape(12.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_stat_aoe),
+                        contentDescription = "Réglages",
+                        modifier = Modifier.size(21.dp),
+                        tint = AoEPalette.Amber,
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            SearchPill(
+                query = query,
+                onQueryChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(2.dp))
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Plus d'actions")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Rafraîchir") },
+                        onClick = {
+                            menuOpen = false
+                            onRefresh()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Tri : $sortLabel") },
+                        onClick = {
+                            menuOpen = false
+                            onToggleSort()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Nouveau groupe") },
+                        onClick = {
+                            menuOpen = false
+                            onCreateGroup()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Gérer les groupes") },
+                        onClick = {
+                            menuOpen = false
+                            onManageGroups()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Ordre des workspaces") },
+                        onClick = {
+                            menuOpen = false
+                            onWorkspaceOrder()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Réglages") },
+                        onClick = {
+                            menuOpen = false
+                            onSettings()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchPill(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    Surface(
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(19.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) {
+                            Text(
+                                "Rechercher",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        Icons.Default.Clear,
+                        contentDescription = "Effacer la recherche",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
