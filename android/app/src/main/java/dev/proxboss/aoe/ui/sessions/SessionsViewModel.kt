@@ -10,6 +10,7 @@ import dev.proxboss.aoe.model.GroupInfo
 import dev.proxboss.aoe.model.SearchHit
 import dev.proxboss.aoe.model.Session
 import dev.proxboss.aoe.model.SessionFilter
+import dev.proxboss.aoe.model.SystemHealth
 import dev.proxboss.aoe.net.ApiResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,6 +69,7 @@ data class SessionsUiState(
     val workspaceOrdering: List<String> = emptyList(),
     val workspaces: List<WorkspaceUi> = emptyList(),
     val undoTrashSession: Session? = null,
+    val health: SystemHealth? = null,
 )
 
 class SessionsViewModel(application: Application) : AndroidViewModel(application) {
@@ -104,6 +106,7 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch { refresh(showSpinner = true) }
         loadGroups()
+        loadHealth()
         startStatusLoop()
         startPolling()
     }
@@ -274,6 +277,15 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
                     refresh()
                 }
                 is ApiResult.Err -> _ui.value = _ui.value.copy(message = result.message)
+            }
+        }
+    }
+
+    private fun loadHealth() {
+        viewModelScope.launch {
+            when (val result = repository.fetchHealth()) {
+                is ApiResult.Ok -> _ui.value = _ui.value.copy(health = result.value)
+                is ApiResult.Err -> Unit
             }
         }
     }

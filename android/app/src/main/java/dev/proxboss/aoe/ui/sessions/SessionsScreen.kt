@@ -73,6 +73,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,6 +90,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.input.ImeAction
@@ -334,30 +340,7 @@ fun SessionsScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CountBadge(
-                    if (ui.activeCount > 1) "${ui.activeCount} actives" else "${ui.activeCount} active",
-                    MaterialTheme.colorScheme.primary,
-                )
-                if (ui.waitingCount > 0) {
-                    CountBadge(
-                        if (ui.waitingCount > 1) "${ui.waitingCount} en attente" else "1 en attente",
-                        AoEPalette.Amber,
-                    )
-                }
-                if (ui.unreadCount > 0) {
-                    CountBadge(
-                        if (ui.unreadCount > 1) "${ui.unreadCount} non lues" else "1 non lue",
-                        MaterialTheme.colorScheme.tertiary,
-                    )
-                }
-            }
+            SummaryStrip(ui)
 
             if (ui.offline) {
                 OfflineBanner(message = ui.error, onRetry = { viewModel.refresh(showSpinner = true) })
@@ -376,16 +359,7 @@ fun SessionsScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (ui.loading && ui.sessions.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 70.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator()
-                            }
-                        }
+                        items(3, key = { "skeleton-$it" }) { SkeletonBlock() }
                     }
 
                     if (ui.query.isNotBlank()) {
@@ -587,20 +561,122 @@ fun SessionsScreen(
 }
 
 @Composable
-private fun CountBadge(label: String, color: Color) {
+private fun SummaryStrip(ui: SessionsUiState) {
     Surface(
-        color = color.copy(alpha = 0.12f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.28f)),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(99.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 4.dp),
     ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SummaryStat(
+                label = "ACTIVES",
+                value = ui.activeCount.toString(),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            SummaryStat(
+                label = "ATTENTE",
+                value = ui.waitingCount.toString(),
+                tint = AoEPalette.Amber,
+                modifier = Modifier.weight(1f),
+            )
+            SummaryStat(
+                label = "NON LUES",
+                value = ui.unreadCount.toString(),
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.weight(1f),
+            )
+            val health = ui.health
+            val healthTint = when (health?.status) {
+                "ok" -> AoEPalette.Green
+                "warn" -> AoEPalette.Amber
+                "critical" -> AoEPalette.Rose
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            SummaryStat(
+                label = "SANTÉ",
+                value = health?.status?.uppercase() ?: "—",
+                tint = healthTint,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SummaryStat(label: String, value: String, tint: Color, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = tint,
+            maxLines = 1,
+        )
         Text(
             label,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = color,
+            letterSpacing = 0.8.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
         )
     }
 }
+
+private fun projectAccent(id: String): Color {
+    val palette = listOf(
+        AoEPalette.Cyan,
+        AoEPalette.Violet,
+        AoEPalette.Green,
+        AoEPalette.Amber,
+        Color(0xFF60A5FA),
+        Color(0xFFF472B6),
+    )
+    val hash = id.fold(0) { acc, ch -> (acc * 31 + ch.code) and 0x7fffffff }
+    return palette[hash % palette.size]
+}
+
+@Composable
+private fun SkeletonBlock() {
+    val transition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by transition.animateFloat(
+        initialValue = 0.22f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "skeleton-alpha",
+    )
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha), CircleShape),
+            )
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier
+                    .height(14.dp)
+                    .fillMaxWidth(0.45f)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha), RoundedCornerShape(6.dp)),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(92.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha), RoundedCornerShape(18.dp)),
+        )
+    }
+}
+
 
 @Composable
 private fun OfflineBanner(message: String?, onRetry: () -> Unit) {
@@ -648,14 +724,15 @@ private fun WorkspaceHeader(
             .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val accent = projectAccent(workspace.id)
         Box(
             modifier = Modifier
                 .size(38.dp)
                 .background(
                     Brush.linearGradient(
                         listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
-                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f),
+                            accent.copy(alpha = 0.34f),
+                            accent.copy(alpha = 0.12f),
                         ),
                     ),
                     CircleShape,
@@ -666,7 +743,7 @@ private fun WorkspaceHeader(
                 Icons.Default.Folder,
                 contentDescription = null,
                 modifier = Modifier.size(19.dp),
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accent,
             )
         }
         Spacer(Modifier.width(10.dp))
@@ -1102,11 +1179,12 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                     .padding(start = 17.dp, end = 8.dp, top = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val model = session.model?.trim().orEmpty()
+                val model = session.model?.trim().orEmpty().substringAfterLast('/')
                 Text(
                     if (model.isBlank()) session.displayAgent else "${session.displayAgent} · $model",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1123,7 +1201,7 @@ private fun SessionRow(session: Session, actions: SessionRowActions) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (!session.branch.isNullOrBlank()) {
-                    BadgeText(session.branch, MaterialTheme.colorScheme.primary)
+                    BadgeText(session.branch, projectAccent(session.mainRepoPath ?: session.projectPath))
                 }
                 if (session.groupPath.isNotBlank()) {
                     BadgeText("#${session.groupPath}", MaterialTheme.colorScheme.secondary)
